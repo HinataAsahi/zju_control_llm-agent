@@ -23,6 +23,63 @@ LLM Agent -> 工具调用 -> CLI 工具 -> MCP tools schema -> skill 文件
 - **skill**：给模型看的可复用操作经验，强调使用场景、步骤、约束和常见错误。
 - **评测任务**：用来检验 agent 是否真的能完成工作的输入、环境和判分标准。
 
+<figure class="diagram">
+<svg viewBox="0 0 920 320" role="img" aria-label="CLI 工具自动 MCP 化的概念链路图">
+  <defs>
+    <marker id="arrow-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2f5d8c"/>
+    </marker>
+  </defs>
+  <rect x="18" y="18" width="884" height="284" rx="18" fill="#f7fafc" stroke="#d7e3ef"/>
+  <text x="460" y="52" text-anchor="middle" font-size="22" font-weight="700" fill="#203040">从概念理解到项目闭环</text>
+  <g font-size="15" fill="#203040" text-anchor="middle">
+    <g>
+      <rect x="50" y="95" width="120" height="54" rx="10" fill="#e8f1fb" stroke="#9ab9d8"/>
+      <text x="110" y="118">LLM Agent</text><text x="110" y="138">会规划与行动</text>
+    </g>
+    <g>
+      <rect x="210" y="95" width="120" height="54" rx="10" fill="#e8f1fb" stroke="#9ab9d8"/>
+      <text x="270" y="118">工具调用</text><text x="270" y="138">选择与传参</text>
+    </g>
+    <g>
+      <rect x="370" y="95" width="120" height="54" rx="10" fill="#e8f1fb" stroke="#9ab9d8"/>
+      <text x="430" y="118">CLI 工具</text><text x="430" y="138">真实执行</text>
+    </g>
+    <g>
+      <rect x="530" y="95" width="140" height="54" rx="10" fill="#e9f7ef" stroke="#90c9a5"/>
+      <text x="600" y="118">MCP schema</text><text x="600" y="138">结构化接口</text>
+    </g>
+    <g>
+      <rect x="710" y="95" width="130" height="54" rx="10" fill="#fff4df" stroke="#e4bd77"/>
+      <text x="775" y="118">skill 文件</text><text x="775" y="138">使用经验</text>
+    </g>
+    <g>
+      <rect x="140" y="205" width="150" height="54" rx="10" fill="#f5eafa" stroke="#c6a2d7"/>
+      <text x="215" y="228">沙箱执行</text><text x="215" y="248">安全与复现</text>
+    </g>
+    <g>
+      <rect x="385" y="205" width="150" height="54" rx="10" fill="#f5eafa" stroke="#c6a2d7"/>
+      <text x="460" y="228">自动评测</text><text x="460" y="248">成功率与成本</text>
+    </g>
+    <g>
+      <rect x="630" y="205" width="150" height="54" rx="10" fill="#f5eafa" stroke="#c6a2d7"/>
+      <text x="705" y="228">失败反馈</text><text x="705" y="248">修正 schema/skill</text>
+    </g>
+  </g>
+  <g stroke="#2f5d8c" stroke-width="2.2" fill="none" marker-end="url(#arrow-flow)">
+    <path d="M170 122 H208"/>
+    <path d="M330 122 H368"/>
+    <path d="M490 122 H528"/>
+    <path d="M670 122 H708"/>
+    <path d="M775 150 C775 178 735 190 705 203"/>
+    <path d="M630 232 H537"/>
+    <path d="M385 232 H292"/>
+    <path d="M215 205 C215 178 280 160 430 150"/>
+  </g>
+</svg>
+<figcaption>图 1：题目 2 的核心链路。schema 和 skill 不是最终目标，真实执行、评测和反馈闭环才是实验价值所在。</figcaption>
+</figure>
+
 ## 1. 从 LLM Agent 说起：为什么 agent 需要工具
 
 普通 LLM 的基本能力是根据上下文生成文本。它可以解释概念、写代码、总结材料，但它本身并不会天然拥有实时数据库、文件系统、命令行程序、网页、企业系统或实验环境的真实访问能力。
@@ -169,6 +226,30 @@ MCP，即 Model Context Protocol，是一种让模型宿主连接外部工具和
 较好的做法通常是把 CLI 的能力切成若干安全、清晰、高频的工具。比如不要直接暴露完整 `git`，而是暴露 `git_status`、`git_show_file`、`git_log_recent` 这类边界更清楚的工具。对于题目 2，这个切分策略本身就是值得分析的设计点：自动生成 pipeline 不仅要抽参数，还要判断哪些命令适合作为 agent 工具。
 
 MCP 规范还提醒了一个安全事实：工具通常由模型控制调用，但应用应让用户理解哪些工具暴露给模型，并在敏感操作上保留人工确认。这说明本项目的 schema 生成不能只追求“能调通”，还要考虑权限、危险操作和可解释性。
+
+<figure class="diagram">
+<svg viewBox="0 0 920 300" role="img" aria-label="MCP schema 与 skill 文件职责边界图">
+  <rect x="20" y="20" width="880" height="260" rx="18" fill="#fbfcfe" stroke="#d8e2ec"/>
+  <text x="460" y="52" text-anchor="middle" font-size="22" font-weight="700" fill="#203040">schema 与 skill 的职责边界</text>
+  <g font-size="16" fill="#203040">
+    <rect x="70" y="82" width="330" height="150" rx="14" fill="#e9f7ef" stroke="#90c9a5"/>
+    <text x="235" y="112" text-anchor="middle" font-size="19" font-weight="700">MCP tools schema</text>
+    <text x="105" y="145">关注：怎么调用</text>
+    <text x="105" y="172">表达：参数名、类型、必填项</text>
+    <text x="105" y="199">校验：JSON Schema、危险字段</text>
+    <rect x="520" y="82" width="330" height="150" rx="14" fill="#fff4df" stroke="#e4bd77"/>
+    <text x="685" y="112" text-anchor="middle" font-size="19" font-weight="700">skill 文件</text>
+    <text x="555" y="145">关注：何时用、怎样用稳</text>
+    <text x="555" y="172">表达：工作流、示例、限制</text>
+    <text x="555" y="199">修正：失败经验、排错策略</text>
+    <rect x="402" y="132" width="116" height="50" rx="25" fill="#edf2f7" stroke="#b8c4d0"/>
+    <text x="460" y="153" text-anchor="middle" font-size="14">共同目标</text>
+    <text x="460" y="172" text-anchor="middle" font-size="14">稳定完成任务</text>
+  </g>
+  <path d="M400 157 H520" stroke="#2f5d8c" stroke-width="2" stroke-dasharray="6 5"/>
+</svg>
+<figcaption>图 2：schema 偏机器可验证接口，skill 偏模型可读经验。两者互补，而不是互相替代。</figcaption>
+</figure>
 
 ## 5. Skill 文件：补足 schema 之外的使用经验
 
@@ -441,6 +522,43 @@ rerun_result: success
 这样才能形成可解释的迭代实验。进阶目标中的“收敛速度”也可以由此定义：同一批任务经过几轮反馈后成功率趋于稳定，或者失败类型不再集中在 schema/skill 问题上。
 
 还要警惕一种假改进：把任务答案直接写进 skill。这样会提高特定任务成功率，但破坏泛化。合理的修正应该增加工具使用知识，而不是泄露任务答案。
+
+<figure class="diagram">
+<svg viewBox="0 0 920 360" role="img" aria-label="实验闭环与失败归因图">
+  <defs>
+    <marker id="arrow-loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b4b8a"/>
+    </marker>
+  </defs>
+  <rect x="18" y="18" width="884" height="324" rx="18" fill="#fcfbff" stroke="#ded8ef"/>
+  <text x="460" y="52" text-anchor="middle" font-size="22" font-weight="700" fill="#203040">从生成到评测再到修正</text>
+  <g font-size="15" fill="#203040" text-anchor="middle">
+    <rect x="60" y="95" width="125" height="55" rx="10" fill="#e8f1fb" stroke="#9ab9d8"/>
+    <text x="122" y="118">CLI 文档</text><text x="122" y="138">help / README</text>
+    <rect x="240" y="95" width="125" height="55" rx="10" fill="#e9f7ef" stroke="#90c9a5"/>
+    <text x="302" y="118">生成器</text><text x="302" y="138">schema + skill</text>
+    <rect x="420" y="95" width="125" height="55" rx="10" fill="#fff4df" stroke="#e4bd77"/>
+    <text x="482" y="118">静态校验</text><text x="482" y="138">格式与安全</text>
+    <rect x="600" y="95" width="125" height="55" rx="10" fill="#f5eafa" stroke="#c6a2d7"/>
+    <text x="662" y="118">沙箱 agent</text><text x="662" y="138">真实调用</text>
+    <rect x="760" y="95" width="100" height="55" rx="10" fill="#f5eafa" stroke="#c6a2d7"/>
+    <text x="810" y="118">判分器</text><text x="810" y="138">成功/失败</text>
+    <rect x="285" y="235" width="350" height="65" rx="12" fill="#fff8f0" stroke="#e4bd77"/>
+    <text x="460" y="260" font-size="17" font-weight="700">失败归因记录</text>
+    <text x="460" y="282">文档缺失 / schema 错 / skill 缺经验 / 参数错 / 沙箱拒绝 / 判分错</text>
+  </g>
+  <g stroke="#5b4b8a" stroke-width="2.2" fill="none" marker-end="url(#arrow-loop)">
+    <path d="M185 122 H238"/>
+    <path d="M365 122 H418"/>
+    <path d="M545 122 H598"/>
+    <path d="M725 122 H758"/>
+    <path d="M810 150 C810 220 705 267 637 267"/>
+    <path d="M285 267 C190 260 122 220 122 153"/>
+    <path d="M460 235 C445 198 370 176 305 151"/>
+  </g>
+</svg>
+<figcaption>图 3：实验闭环。失败不是终点，而是修正 schema、skill、任务或判分器的证据。</figcaption>
+</figure>
 
 ## 10. 对本项目的启发：最小可行系统应包含什么
 
