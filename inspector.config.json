@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "jq-mcp-server": {
+      "command": "node",
+      "args": [
+        "dist/src/server.js",
+        "--root",
+        "./fixtures"
+      ]
+    }
+  }
+}

@@ -35,13 +35,17 @@ npm test
 
 ## 启动与 Inspector
 
-构建完成后，以 `fixtures` 作为允许读取的根目录启动 MCP Inspector：
+构建完成后，在项目根目录使用配置文件启动 MCP Inspector：
 
 ```bash
-npx @modelcontextprotocol/inspector node dist/src/server.js --root ./fixtures
+npx @modelcontextprotocol/inspector --web --config ./inspector.config.json
 ```
 
-在 Inspector 中选择 `jq_query` 后填写下方任一种输入。`source` 是同一个字段的两个可选分支，内联数据和文件数据是替代关系，不是需要连续执行的两次调用。
+打开 Inspector 后，切换并连接 `jq-mcp-server`，再打开 **Tools** 并选择 `jq_query`。`source` 是同一个字段的两个可选分支，内联数据和文件数据是替代关系，不是需要连续执行的两次调用。
+
+### Inspector 2.0.0 兼容性说明
+
+Inspector 2.0.0 将判别式 `source` 联合渲染为一个通用 JSON 文本框，而不是分别显示 inline/file 控件。请在该文本框粘贴完整的 `source` 对象，例如 `{"type":"inline","data":{"users":[1,2,3]}}` 或 `{"type":"file","path":"orders.json"}`。直接在 Web 命令后附加 node 目标不会预填服务列表，请使用上面的配置文件命令。
 
 内联 JSON：
 
