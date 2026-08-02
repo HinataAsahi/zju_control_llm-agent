@@ -3,10 +3,80 @@ import * as z from 'zod/v4';
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
-  z.null(), z.boolean(), z.number(), z.string(),
-  z.array(jsonValueSchema), z.record(z.string(), jsonValueSchema)
-]));
+export const MAX_JSON_DEPTH = 128;
+
+interface PendingJsonValue {
+  value: unknown;
+  depth: number;
+  path: (string | number)[];
+  exiting?: boolean;
+}
+
+interface JsonValidationIssue {
+  message: string;
+  path: (string | number)[];
+}
+
+export const jsonValueSchema = z.unknown().superRefine((value, context) => {
+  const issue = findJsonValidationIssue(value);
+  if (issue) context.addIssue({ code: 'custom', ...issue });
+}) as z.ZodType<JsonValue>;
+
+function findJsonValidationIssue(root: unknown): JsonValidationIssue | undefined {
+  const pending: PendingJsonValue[] = [{ value: root, depth: 0, path: [] }];
+  const ancestors = new WeakSet<object>();
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) break;
+
+    if (current.exiting) {
+      ancestors.delete(current.value as object);
+      continue;
+    }
+    if (current.depth > MAX_JSON_DEPTH) {
+      return {
+        message: `JSON nesting must not exceed ${MAX_JSON_DEPTH} levels`,
+        path: current.path
+      };
+    }
+
+    const { value } = current;
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') continue;
+    if (typeof value === 'number') {
+      if (Number.isFinite(value)) continue;
+      return { message: 'JSON numbers must be finite', path: current.path };
+    }
+    if (typeof value !== 'object') {
+      return { message: 'Value must be valid JSON', path: current.path };
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
+      return { message: 'Value must be valid JSON', path: current.path };
+    }
+    if (ancestors.has(value)) {
+      return { message: 'JSON values must not contain cycles', path: current.path };
+    }
+
+    ancestors.add(value);
+    pending.push({ ...current, exiting: true });
+    const entries = Array.isArray(value)
+      ? value.map((entry, index) => [index, entry] as const)
+      : Object.entries(value);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index];
+      if (!entry) continue;
+      pending.push({
+        value: entry[1],
+        depth: current.depth + 1,
+        path: [...current.path, entry[0]]
+      });
+    }
+  }
+
+  return undefined;
+}
 
 const inlineSourceSchema = z.strictObject({ type: z.literal('inline'), data: jsonValueSchema });
 const fileSourceSchema = z.strictObject({ type: z.literal('file'), path: z.string().min(1) });

@@ -107,6 +107,17 @@ test('enforces input byte limits for inline and file input', async (t) => {
   await assert.rejects(resolveSource({ type: 'file', path: 'large.json' }, limitedConfig), expectsCode('INPUT_TOO_LARGE'));
 });
 
+test('enforces the byte limit again after UTF-8 decoding', async (t) => {
+  const { root, config } = await setup(t);
+  const limitedConfig = { ...config, limits: { ...config.limits, inputLimitBytes: 10 } };
+  await writeFile(join(root, 'invalid-utf8.json'), Buffer.alloc(10, 0xff));
+
+  await assert.rejects(
+    resolveSource({ type: 'file', path: 'invalid-utf8.json' }, limitedConfig),
+    expectsCode('INPUT_TOO_LARGE')
+  );
+});
+
 test('bounds the handle read when a file grows after stat and closes the handle', async (t) => {
   const { root, config } = await setup(t);
   const candidate = join(root, 'growing.json');

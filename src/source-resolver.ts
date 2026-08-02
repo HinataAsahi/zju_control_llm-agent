@@ -73,7 +73,11 @@ export async function resolveSource(
     if (inputBytes > config.limits.inputLimitBytes) {
       throw new JqToolError('INPUT_TOO_LARGE', `Input exceeds the size limit: ${userPath}`);
     }
-    return input.subarray(0, inputBytes).toString('utf8');
+    const decodedInput = input.subarray(0, inputBytes).toString('utf8');
+    if (Buffer.byteLength(decodedInput, 'utf8') > config.limits.inputLimitBytes) {
+      throw new JqToolError('INPUT_TOO_LARGE', `Input exceeds the size limit: ${userPath}`);
+    }
+    return decodedInput;
   } catch (error: unknown) {
     if (error instanceof JqToolError) throw error;
     if (isErrno(error, 'ENOENT')) throw new JqToolError('FILE_NOT_FOUND', `File not found: ${userPath}`);
