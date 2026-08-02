@@ -543,18 +543,19 @@ rerun_result: success
     <text x="662" y="118">沙箱 agent</text><text x="662" y="138">真实调用</text>
     <rect x="760" y="95" width="100" height="55" rx="10" fill="#f5eafa" stroke="#c6a2d7"/>
     <text x="810" y="118">判分器</text><text x="810" y="138">成功/失败</text>
-    <rect x="285" y="235" width="350" height="65" rx="12" fill="#fff8f0" stroke="#e4bd77"/>
-    <text x="460" y="260" font-size="17" font-weight="700">失败归因记录</text>
-    <text x="460" y="282">文档缺失 / schema 错 / skill 缺经验 / 参数错 / 沙箱拒绝 / 判分错</text>
+    <rect x="285" y="228" width="350" height="82" rx="12" fill="#fff8f0" stroke="#e4bd77"/>
+    <text x="460" y="252" font-size="17" font-weight="700">失败归因记录</text>
+    <text x="460" y="276">文档缺失 / schema 错 / skill 缺经验</text>
+    <text x="460" y="298">参数错 / 沙箱拒绝 / 判分错</text>
   </g>
   <g stroke="#5b4b8a" stroke-width="2.2" fill="none" marker-end="url(#arrow-loop)">
     <path d="M185 122 H238"/>
     <path d="M365 122 H418"/>
     <path d="M545 122 H598"/>
     <path d="M725 122 H758"/>
-    <path d="M810 150 C810 220 705 267 637 267"/>
-    <path d="M285 267 C190 260 122 220 122 153"/>
-    <path d="M460 235 C445 198 370 176 305 151"/>
+    <path d="M810 150 C810 220 705 269 637 269"/>
+    <path d="M283 269 C190 260 122 220 122 153"/>
+    <path d="M460 228 C445 195 370 174 305 151"/>
   </g>
 </svg>
 <figcaption>图 3：实验闭环。失败不是终点，而是修正 schema、skill、任务或判分器的证据。</figcaption>
