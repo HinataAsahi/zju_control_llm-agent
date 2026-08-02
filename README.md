@@ -14,6 +14,8 @@
 - npm
 - jq 1.8.2，或兼容的 jq 1.8.x
 
+当前运行与测试验证覆盖 Linux 和 WSL 环境，尚未验证 Windows 原生环境。
+
 可通过以下命令确认版本：
 
 ```bash
@@ -38,7 +40,7 @@ npm test
 构建完成后，在项目根目录使用配置文件启动 MCP Inspector：
 
 ```bash
-npx @modelcontextprotocol/inspector --web --config ./inspector.config.json
+npx @modelcontextprotocol/inspector@2.0.0 --web --config ./inspector.config.json
 ```
 
 打开 Inspector 后，切换并连接 `jq-mcp-server`，再打开 **Tools** 并选择 `jq_query`。`source` 是同一个字段的两个可选分支，内联数据和文件数据是替代关系，不是需要连续执行的两次调用。
@@ -72,7 +74,7 @@ Inspector 2.0.0 将判别式 `source` 联合渲染为一个通用 JSON 文本框
 
 ## 安全模型
 
-服务在启动时确定并规范化允许读取的根目录，文件路径只能位于该根目录以下。JSON 通过标准输入传给 jq；子进程使用 `shell: false`，不接受任意 jq 标志。
+服务在启动时确定并规范化允许读取的根目录，文件路径只能位于该根目录以下。文件检查和有界读取绑定到同一个打开的文件句柄；在支持 `O_NOFOLLOW` 的平台上，最终路径分量为符号链接时会被拒绝，包括仍指向根目录内部的链接。允许根目录在服务运行期间不得由不受信任的进程并发修改，因为 Node.js 没有提供可移植的 `openat` 祖先路径遍历，当前实现不保证抵御可变祖先目录上的所有竞争条件。JSON 通过标准输入传给 jq；子进程使用 `shell: false`，不接受任意 jq 标志。
 
 限制如下：
 

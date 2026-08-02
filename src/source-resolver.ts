@@ -1,12 +1,24 @@
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open, realpath } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { Buffer } from 'node:buffer';
 import type { AppConfig } from './config.js';
 import { JqToolError, type JqSource } from './jq-schema.js';
 
+interface ResolverFileSystem {
+  realpath(path: string): Promise<string>;
+  open(path: string, flags: number): Promise<FileHandle>;
+}
+
+const nodeFileSystem: ResolverFileSystem = { realpath, open };
+const readNoFollowFlags = constants.O_RDONLY
+  | (typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0);
+
 export async function resolveSource(
   source: JqSource,
-  config: Pick<AppConfig, 'root' | 'limits'>
+  config: Pick<AppConfig, 'root' | 'limits'>,
+  fileSystem: ResolverFileSystem = nodeFileSystem
 ): Promise<string> {
   if (source.type === 'inline') {
     const input = JSON.stringify(source.data);
@@ -21,38 +33,58 @@ export async function resolveSource(
     throw pathNotAllowed(userPath);
   }
 
+  const candidate = resolve(config.root, userPath);
   let target: string;
   try {
-    target = await realpath(resolve(config.root, userPath));
+    target = await fileSystem.realpath(candidate);
   } catch (error: unknown) {
     if (isErrno(error, 'ENOENT')) throw new JqToolError('FILE_NOT_FOUND', `File not found: ${userPath}`);
     throw pathNotAllowed(userPath);
   }
   if (isOutsideRoot(config.root, target)) throw pathNotAllowed(userPath);
 
-  let targetStats;
+  let handle: FileHandle;
   try {
-    targetStats = await stat(target);
+    handle = await fileSystem.open(candidate, readNoFollowFlags);
   } catch (error: unknown) {
     if (isErrno(error, 'ENOENT')) throw new JqToolError('FILE_NOT_FOUND', `File not found: ${userPath}`);
     throw pathNotAllowed(userPath);
-  }
-  if (!targetStats.isFile()) throw pathNotAllowed(userPath);
-  if (targetStats.size > config.limits.inputLimitBytes) {
-    throw new JqToolError('INPUT_TOO_LARGE', `Input exceeds the size limit: ${userPath}`);
   }
 
-  let input: string;
   try {
-    input = await readFile(target, 'utf8');
+    const targetStats = await handle.stat();
+    if (!targetStats.isFile()) throw pathNotAllowed(userPath);
+    if (targetStats.size > config.limits.inputLimitBytes) {
+      throw new JqToolError('INPUT_TOO_LARGE', `Input exceeds the size limit: ${userPath}`);
+    }
+
+    const input = Buffer.allocUnsafe(config.limits.inputLimitBytes + 1);
+    let inputBytes = 0;
+    while (inputBytes < input.byteLength) {
+      const { bytesRead } = await handle.read(
+        input,
+        inputBytes,
+        input.byteLength - inputBytes,
+        inputBytes
+      );
+      if (bytesRead === 0) break;
+      inputBytes += bytesRead;
+    }
+    if (inputBytes > config.limits.inputLimitBytes) {
+      throw new JqToolError('INPUT_TOO_LARGE', `Input exceeds the size limit: ${userPath}`);
+    }
+    return input.subarray(0, inputBytes).toString('utf8');
   } catch (error: unknown) {
+    if (error instanceof JqToolError) throw error;
     if (isErrno(error, 'ENOENT')) throw new JqToolError('FILE_NOT_FOUND', `File not found: ${userPath}`);
     throw pathNotAllowed(userPath);
+  } finally {
+    try {
+      await handle.close();
+    } catch {
+      // The read result or mapped error remains authoritative after close was attempted.
+    }
   }
-  if (Buffer.byteLength(input, 'utf8') > config.limits.inputLimitBytes) {
-    throw new JqToolError('INPUT_TOO_LARGE', `Input exceeds the size limit: ${userPath}`);
-  }
-  return input;
 }
 
 function isOutsideRoot(root: string, candidate: string): boolean {
