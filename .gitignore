@@ -1,3 +1,4 @@
 .firecrawl/
 docs/superpowers/
+.worktrees/
 *:Zone.Identifier
