@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeJq, verifyJqExecutable } from '../src/jq-executor.js';
+import { executeJq, setSpawnForTesting, verifyJqExecutable } from '../src/jq-executor.js';
 import type { Limits } from '../src/config.js';
 import { JqToolError } from '../src/jq-schema.js';
 
@@ -27,6 +30,29 @@ async function createExecutable(t: test.TestContext, source: string): Promise<st
   await writeFile(executable, `#!/bin/sh\n${source}`);
   await chmod(executable, 0o700);
   return executable;
+}
+
+type FakeChild = ReturnType<typeof spawn> & {
+  stdin: PassThrough;
+  stdout: PassThrough;
+  stderr: PassThrough;
+};
+
+function childWhoseKillEmitsError(): FakeChild {
+  const child = new EventEmitter();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const stdin = new PassThrough();
+  Object.assign(child, {
+    stdin,
+    stdout,
+    stderr,
+    kill: (): boolean => {
+      child.emit('error', new Error('signal delivery failed'));
+      return false;
+    }
+  });
+  return child as FakeChild;
 }
 
 test('executes jq and parses compact output values', async () => {
@@ -98,6 +124,19 @@ test('accounts for stderr in jq output limits', async () => {
     }),
     expectsCode('OUTPUT_LIMIT')
   );
+});
+
+test('handles kill errors after stream failures without uncaught events', async (t) => {
+  const child = childWhoseKillEmitsError();
+  t.after(setSpawnForTesting((() => child) as typeof spawn));
+
+  const execution = executeJq({ executable: 'jq', filter: '.', input: 'null', limits: limits() });
+  const rejection = assert.rejects(execution, (error: unknown) => error instanceof JqToolError
+    && error.code === 'INTERNAL_ERROR'
+    && error.message === 'stream failed');
+
+  assert.doesNotThrow(() => child.stdout.emit('error', new Error('stream failed')));
+  await rejection;
 });
 
 test('verifies jq executables by version', async () => {
