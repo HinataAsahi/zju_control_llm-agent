@@ -40,3 +40,15 @@ Ask before destructive actions, external publication or deployment, irreversible
 Do not claim completion without evidence.
 
 Run the most relevant available tests, checks, builds, or focused validations. Clearly state anything that could not be verified.
+
+## Git publication
+
+For this repository, verified work may be pushed to the configured GitHub remote without requesting confirmation again when:
+
+- the change is coherent and complete;
+- relevant tests and checks pass;
+- the working tree contains no unrelated or sensitive files;
+- commits are focused and use conventional, descriptive messages;
+- and the destination branch and upstream have been verified.
+
+Use normal fast-forward pushes. Never force-push, rewrite published history, push secrets, generated artifacts, local-only documentation, or known failing or incomplete work. Report the destination branch and pushed commit after publication.
