@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import test from 'node:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { executeJq, verifyJqExecutable } from '../src/jq-executor.js';
 import type { Limits } from '../src/config.js';
 import { JqToolError } from '../src/jq-schema.js';
@@ -15,6 +18,15 @@ function limits(overrides: Partial<Limits> = {}): Limits {
 
 function expectsCode(code: JqToolError['code']): (error: unknown) => boolean {
   return (error: unknown) => error instanceof JqToolError && error.code === code;
+}
+
+async function createExecutable(t: test.TestContext, source: string): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), 'jq-executor-'));
+  const executable = join(directory, 'fake-jq');
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(executable, `#!/bin/sh\n${source}`);
+  await chmod(executable, 0o700);
+  return executable;
 }
 
 test('executes jq and parses compact output values', async () => {
@@ -72,8 +84,38 @@ test('kills jq when combined output exceeds its byte cap', async () => {
   );
 });
 
+test('allows output exactly at the configured byte cap', async () => {
+  assert.deepEqual(await executeJq({
+    executable: 'jq', filter: '.', input: 'null', limits: limits({ outputLimitBytes: 5 })
+  }), { ok: true, values: [null], exitCode: 0 });
+});
+
+test('accounts for stderr in jq output limits', async () => {
+  await assert.rejects(
+    executeJq({
+      executable: 'jq', filter: '., error("x")', input: 'null',
+      limits: limits({ outputLimitBytes: 5 })
+    }),
+    expectsCode('OUTPUT_LIMIT')
+  );
+});
+
 test('verifies jq executables by version', async () => {
   await assert.match(await verifyJqExecutable('jq'), /^jq-/);
+});
+
+test('terminates executable verification when combined output exceeds 1 MiB', async (t) => {
+  const executable = await createExecutable(
+    t,
+    "while :; do printf '%65536s' ''; printf '%65536s' '' >&2; done"
+  );
+
+  await assert.rejects(
+    verifyJqExecutable(executable),
+    (error: unknown) => error instanceof JqToolError
+      && error.code === 'INTERNAL_ERROR'
+      && error.message === 'jq executable verification output exceeded 1 MiB.'
+  );
 });
 
 test('maps a missing jq executable to an internal error', async () => {
