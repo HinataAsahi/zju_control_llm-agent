@@ -1,0 +1,24 @@
+{
+  "orders": [
+    {
+      "id": "order-1001",
+      "customerId": "customer-acme",
+      "total": 120
+    },
+    {
+      "id": "order-1002",
+      "customerId": "customer-acme",
+      "total": 80
+    },
+    {
+      "id": "order-1003",
+      "customerId": "customer-zenith",
+      "total": 100
+    },
+    {
+      "id": "order-1004",
+      "customerId": "customer-zenith",
+      "total": 250
+    }
+  ]
+}
