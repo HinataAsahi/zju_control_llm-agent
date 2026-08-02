@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import type { AppConfig } from '../src/config.js';
 import { createJqToolHandler } from '../src/jq-tool.js';
+import { JqToolError } from '../src/jq-schema.js';
 
 const limits = { inputLimitBytes: 1024, outputLimitBytes: 1024, timeoutMs: 5000 };
 
@@ -94,4 +95,26 @@ test('redacts unknown dependency errors', async (t) => {
     exitCode: null
   });
   assert.equal(JSON.stringify(result).includes('secret detail'), false);
+});
+
+test('redacts internal jq tool errors from dependencies', async (t) => {
+  const { config } = await setup(t);
+  const rawDetail = 'spawn failed at /private/secret/jq';
+  const handler = createJqToolHandler(config, {
+    resolveSource: async () => 'null',
+    executeJq: async () => { throw new JqToolError('INTERNAL_ERROR', rawDetail); }
+  });
+
+  const result = await handler({
+    filter: '.',
+    source: { type: 'inline', data: null }
+  });
+
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.structuredContent, {
+    ok: false,
+    error: { code: 'INTERNAL_ERROR', message: 'Internal jq tool error' },
+    exitCode: null
+  });
+  assert.equal(JSON.stringify(result).includes(rawDetail), false);
 });

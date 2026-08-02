@@ -1,6 +1,7 @@
 import type { AppConfig } from './config.js';
 import { executeJq } from './jq-executor.js';
 import {
+  INTERNAL_ERROR_MESSAGE,
   JqToolError,
   type JqQueryFailure,
   type JqQueryInput,
@@ -37,8 +38,15 @@ export function createJqToolHandler(
       return formatToolResult(output, false);
     } catch (error) {
       const output: JqQueryFailure = error instanceof JqToolError
-        ? { ok: false, error: { code: error.code, message: error.message }, exitCode: error.exitCode }
-        : { ok: false, error: { code: 'INTERNAL_ERROR', message: 'Internal jq tool error' }, exitCode: null };
+        ? {
+          ok: false,
+          error: {
+            code: error.code,
+            message: error.code === 'INTERNAL_ERROR' ? INTERNAL_ERROR_MESSAGE : error.message
+          },
+          exitCode: error.exitCode
+        }
+        : { ok: false, error: { code: 'INTERNAL_ERROR', message: INTERNAL_ERROR_MESSAGE }, exitCode: null };
       return formatToolResult(output, true);
     }
   };

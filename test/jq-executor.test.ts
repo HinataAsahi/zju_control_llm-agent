@@ -133,7 +133,7 @@ test('handles kill errors after stream failures without uncaught events', async 
   const execution = executeJq({ executable: 'jq', filter: '.', input: 'null', limits: limits() });
   const rejection = assert.rejects(execution, (error: unknown) => error instanceof JqToolError
     && error.code === 'INTERNAL_ERROR'
-    && error.message === 'stream failed');
+    && error.message === 'Internal jq tool error');
 
   assert.doesNotThrow(() => child.stdout.emit('error', new Error('stream failed')));
   await rejection;
@@ -153,10 +153,15 @@ test('terminates executable verification when combined output exceeds 1 MiB', as
     verifyJqExecutable(executable),
     (error: unknown) => error instanceof JqToolError
       && error.code === 'INTERNAL_ERROR'
-      && error.message === 'jq executable verification output exceeded 1 MiB.'
+      && error.message === 'Internal jq tool error'
   );
 });
 
 test('maps a missing jq executable to an internal error', async () => {
-  await assert.rejects(verifyJqExecutable('jq-does-not-exist'), expectsCode('INTERNAL_ERROR'));
+  await assert.rejects(
+    verifyJqExecutable('jq-does-not-exist'),
+    (error: unknown) => error instanceof JqToolError
+      && error.code === 'INTERNAL_ERROR'
+      && error.message === 'Internal jq tool error'
+  );
 });

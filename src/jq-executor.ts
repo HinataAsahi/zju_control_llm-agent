@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import type { ChildProcess, ChildProcessWithoutNullStreams, SpawnOptions } from 'node:child_process';
 import type { Limits } from './config.js';
-import { JqToolError } from './jq-schema.js';
+import { internalJqToolError, JqToolError } from './jq-schema.js';
 import type { JqQuerySuccess, JsonValue } from './jq-schema.js';
 
 export interface ExecuteJqRequest {
@@ -37,9 +37,8 @@ function errorMessage(stderr: Buffer[], fallback: string): string {
   return (message || fallback).slice(0, 1000);
 }
 
-function internalError(error: unknown): JqToolError {
-  const message = error instanceof Error ? error.message : 'Unable to execute jq.';
-  return new JqToolError('INTERNAL_ERROR', message);
+function internalError(): JqToolError {
+  return internalJqToolError();
 }
 
 export async function executeJq(request: ExecuteJqRequest): Promise<JqQuerySuccess> {
@@ -70,7 +69,7 @@ export async function executeJq(request: ExecuteJqRequest): Promise<JqQuerySucce
         stdio: ['pipe', 'pipe', 'pipe']
       }) as ChildProcessWithoutNullStreams;
     } catch (error) {
-      settle(internalError(error));
+      settle(internalError());
       return;
     }
 
@@ -106,10 +105,10 @@ export async function executeJq(request: ExecuteJqRequest): Promise<JqQuerySucce
       chunks.push(chunk);
     };
 
-    const failFromStream = (error: Error): void => stop(internalError(error));
+    const failFromStream = (_error: Error): void => stop(internalError());
 
     const onChildError = (error: Error): void => {
-      if (!terminal) terminal = internalError(error);
+      if (!terminal) terminal = internalError();
       settle(terminalResult(null));
     };
     const onStdoutData = collect(stdout);
@@ -140,7 +139,7 @@ export async function executeJq(request: ExecuteJqRequest): Promise<JqQuerySucce
           .map(line => JSON.parse(line) as JsonValue);
         settle({ ok: true, values, exitCode: 0 });
       } catch (error) {
-        settle(internalError(error));
+        settle(internalError());
       }
     };
 
@@ -197,7 +196,7 @@ export async function verifyJqExecutable(executable: string): Promise<string> {
         stdio: ['ignore', 'pipe', 'pipe']
       }) as ChildProcessWithoutNullStreams;
     } catch (error) {
-      settle(internalError(error));
+      settle(internalError());
       return;
     }
 
@@ -222,7 +221,7 @@ export async function verifyJqExecutable(executable: string): Promise<string> {
       if (terminalError) return;
       outputBytes += chunk.length;
       if (outputBytes > verificationOutputLimitBytes) {
-        stop(new JqToolError('INTERNAL_ERROR', 'jq executable verification output exceeded 1 MiB.'));
+        stop(internalJqToolError());
         return;
       }
       chunks.push(chunk);
@@ -230,11 +229,11 @@ export async function verifyJqExecutable(executable: string): Promise<string> {
 
     const fail = (error: unknown): void => {
       if (terminalError) return;
-      stop(internalError(error));
+      stop(internalError());
     };
 
     const onChildError = (error: Error): void => {
-      if (!terminalError) terminalError = internalError(error);
+      if (!terminalError) terminalError = internalError();
       settle(terminalError);
     };
 
@@ -250,11 +249,7 @@ export async function verifyJqExecutable(executable: string): Promise<string> {
         settle(version);
         return;
       }
-      settle(new JqToolError(
-        'INTERNAL_ERROR',
-        errorMessage(stderr, 'Unable to verify jq executable.'),
-        code
-      ));
+      settle(internalJqToolError(code));
     };
 
     cleanup = (): void => {
@@ -273,7 +268,7 @@ export async function verifyJqExecutable(executable: string): Promise<string> {
     child.once('close', onClose);
 
     timeout = setTimeout(() => {
-      stop(new JqToolError('INTERNAL_ERROR', 'jq executable verification timed out.'));
+      stop(internalJqToolError());
     }, 2000);
   });
 }

@@ -25,6 +25,8 @@ export const jqErrorCodeSchema = z.enum([
   'OUTPUT_LIMIT', 'INTERNAL_ERROR'
 ]);
 
+export const INTERNAL_ERROR_MESSAGE = 'Internal jq tool error';
+
 export const jqQuerySuccessSchema = z.strictObject({
   ok: z.literal(true), values: z.array(jsonValueSchema), exitCode: z.literal(0)
 });
@@ -51,4 +53,8 @@ export class JqToolError extends Error {
     super(message);
     this.name = 'JqToolError';
   }
+}
+
+export function internalJqToolError(exitCode: number | null = null): JqToolError {
+  return new JqToolError('INTERNAL_ERROR', INTERNAL_ERROR_MESSAGE, exitCode);
 }
