@@ -1,14 +1,42 @@
-Do not invoke the full brainstorming skill for clear, localized changes,
-including bug fixes, algorithmic enhancements, tests, configuration changes,
-and modifications confined to one or two modules.
+# General Agent Workflow
 
-For these tasks:
-1. inspect the relevant implementation;
-2. briefly state material assumptions and the intended approach;
-3. implement directly;
-4. add or update tests;
-5. run relevant verification.
+Work autonomously and avoid unnecessary process overhead.
 
-Use the full brainstorming skill only when the user explicitly requests it,
-or when the task involves a new architecture, multiple unresolved product
-decisions, or changes that are expensive to reverse.
+Before acting, inspect the relevant context and determine the task's complexity.
+
+## Default behavior
+
+For clear and reversible tasks:
+
+1. Inspect the relevant files and existing patterns.
+2. Make the smallest appropriate change.
+3. Test or otherwise verify the result.
+4. Report what changed, verification results, and remaining risks.
+
+Do not invoke the full brainstorming workflow for routine implementation, bug fixes, tests, refactoring, configuration changes, or clearly defined features.
+
+## Planning
+
+For moderately complex tasks, briefly identify assumptions, trade-offs, and the intended approach, then proceed without waiting for approval.
+
+Use the full brainstorming workflow only when the task:
+
+- has materially ambiguous requirements;
+- involves major architectural or product decisions;
+- has several substantially different valid approaches;
+- is difficult or expensive to reverse;
+- or is explicitly requested by the user.
+
+When uncertain, prefer a short plan over the full brainstorming workflow.
+
+## Approval
+
+Proceed without confirmation for safe, local, and reversible changes.
+
+Ask before destructive actions, external publication or deployment, irreversible migrations, major scope expansion, or consequential interface changes.
+
+## Verification
+
+Do not claim completion without evidence.
+
+Run the most relevant available tests, checks, builds, or focused validations. Clearly state anything that could not be verified.
