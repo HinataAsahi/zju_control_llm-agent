@@ -2,3 +2,5 @@
 docs/superpowers/
 .worktrees/
 *:Zone.Identifier
+node_modules/
+dist/
