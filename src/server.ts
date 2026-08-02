@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadConfig, type AppConfig } from './config.js';
 import { verifyJqExecutable } from './jq-executor.js';
@@ -24,8 +25,16 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   await server.connect(transport);
 }
 
-const entrypoint = process.argv[1];
-if (entrypoint && import.meta.url === pathToFileURL(entrypoint).href) {
+function isEntrypoint(entrypoint: string | undefined): boolean {
+  if (!entrypoint) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entrypoint)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isEntrypoint(process.argv[1])) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : 'Unable to start jq MCP server.';
     console.error(message);

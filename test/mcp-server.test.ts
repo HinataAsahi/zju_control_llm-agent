@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -30,6 +31,45 @@ async function withClient(
     await client.close();
   }
 }
+
+async function runProcess(args: string[]): Promise<{
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+}> {
+  const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+  child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      resolve({
+        code,
+        signal,
+        stdout: Buffer.concat(stdout).toString('utf8'),
+        stderr: Buffer.concat(stderr).toString('utf8')
+      });
+    });
+  });
+}
+
+test('runs startup validation through a symlinked entrypoint', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'jq-mcp-server-link-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const entrypoint = join(directory, 'server-link.js');
+  await symlink(resolve('dist/src/server.js'), entrypoint);
+
+  const result = await runProcess([entrypoint]);
+
+  assert.equal(result.code, 1);
+  assert.equal(result.signal, null);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, 'Expected --root <path>.\n');
+});
 
 test('advertises exactly the jq_query tool', async (t) => {
   await withClient(t, async (client) => {
