@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import test from 'node:test';
 import type { ExperimentTask } from '../../src/experiment/schema.js';
 import { loadTasks } from '../../src/experiment/task-loader.js';
@@ -158,6 +158,31 @@ test('rejects a non-directory workspaces parent', async t => {
   );
 });
 
+test('rejects symlink components in absolute and relative run root paths', async t => {
+  for (const testCase of [
+    { name: 'run root', nested: false, relative: false },
+    { name: 'run root ancestor', nested: true, relative: true }
+  ]) {
+    await t.test(testCase.name, async t => {
+      const container = await setup(t);
+      const redirectedRoot = join(container, 'redirected');
+      const linkedRoot = join(container, 'linked');
+      await mkdir(redirectedRoot);
+      if (!await createSymlinkOrSkip(t, redirectedRoot, linkedRoot, 'dir')) return;
+
+      const absoluteRunRoot = testCase.nested ? join(linkedRoot, 'nested') : linkedRoot;
+      const runRoot = testCase.relative ? relative(process.cwd(), absoluteRunRoot) : absoluteRunRoot;
+      await assert.rejects(
+        prepareWorkspace({ task: directTask, condition: 'description', experimentRoot, runRoot, runId: 'redirected-run' })
+      );
+      const redirectedWorkspace = testCase.nested
+        ? join(redirectedRoot, 'nested', 'workspaces', 'redirected-run')
+        : join(redirectedRoot, 'workspaces', 'redirected-run');
+      await assert.rejects(stat(redirectedWorkspace));
+    });
+  }
+});
+
 test('rejects symlinked source assets instead of dereferencing them', async t => {
   const cases = [
     { name: 'fixture', path: 'tasks/fixtures/users.json', condition: 'description' as const },
@@ -189,7 +214,73 @@ test('rejects symlinked source assets instead of dereferencing them', async t =>
   }
 });
 
-test('cleans failed temporary workspaces so the same run ID can be retried', async t => {
+test('rejects symlinked source parent directories', async t => {
+  for (const testCase of [
+    { name: 'fixture directory', path: 'tasks/fixtures' },
+    { name: 'schema directory', path: 'schemas' }
+  ]) {
+    await t.test(testCase.name, async t => {
+      const runRoot = await setup(t);
+      const mutableExperimentRoot = await setupMutableExperiment(t);
+      const sourceDirectory = join(mutableExperimentRoot, ...testCase.path.split('/'));
+      const realDirectory = `${sourceDirectory}.real`;
+      await rename(sourceDirectory, realDirectory);
+      if (!await createSymlinkOrSkip(t, basename(realDirectory), sourceDirectory, 'dir')) return;
+
+      await assert.rejects(
+        prepareWorkspace({
+          task: directTask,
+          condition: 'description',
+          experimentRoot: mutableExperimentRoot,
+          runRoot,
+          runId: `symlink-parent-${testCase.name.replace(' ', '-')}`
+        })
+      );
+      assert.deepEqual(await readdir(join(runRoot, 'workspaces')), []);
+    });
+  }
+});
+
+test('rejects a symlinked experiment root', async t => {
+  const runRoot = await setup(t);
+  const mutableExperimentRoot = await setupMutableExperiment(t);
+  const linkedExperimentRoot = `${mutableExperimentRoot}-link`;
+  t.after(() => rm(linkedExperimentRoot, { force: true }));
+  if (!await createSymlinkOrSkip(t, mutableExperimentRoot, linkedExperimentRoot, 'dir')) return;
+
+  await assert.rejects(
+    prepareWorkspace({
+      task: directTask,
+      condition: 'description',
+      experimentRoot: linkedExperimentRoot,
+      runRoot,
+      runId: 'symlink-experiment-root'
+    })
+  );
+  await assert.rejects(stat(join(runRoot, 'workspaces')));
+});
+
+test('serializes concurrent preparations for the same workspace', async t => {
+  const runRoot = await setup(t);
+  const options = {
+    task: directTask,
+    condition: 'description' as const,
+    experimentRoot,
+    runRoot,
+    runId: 'concurrent'
+  };
+
+  const results = await Promise.allSettled([prepareWorkspace(options), prepareWorkspace(options)]);
+  const fulfilled = results.filter(result => result.status === 'fulfilled');
+  const rejected = results.filter(result => result.status === 'rejected');
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.equal((rejected[0]?.reason as NodeJS.ErrnoException).code, 'EEXIST');
+  assert.deepEqual(await readdir(join(runRoot, 'workspaces')), ['concurrent']);
+  assert.equal(await readFile(join(runRoot, 'workspaces', 'concurrent', 'final-answer.schema.json'), 'utf8'), await readFile(join(experimentRoot, 'schemas', 'final-answer.schema.json'), 'utf8'));
+});
+
+test('cleans failed temporary workspaces and reservations so the same run ID can be retried', async t => {
   const runRoot = await setup(t);
   const mutableExperimentRoot = await setupMutableExperiment(t);
   const schemaPath = join(mutableExperimentRoot, 'schemas', 'final-answer.schema.json');
@@ -203,7 +294,12 @@ test('cleans failed temporary workspaces so the same run ID can be retried', asy
     runRoot,
     runId: 'retryable'
   };
-  await assert.rejects(prepareWorkspace(options));
+  const failedResults = await Promise.allSettled([prepareWorkspace(options), prepareWorkspace(options)]);
+  const failureCodes = failedResults
+    .filter(result => result.status === 'rejected')
+    .map(result => (result.reason as NodeJS.ErrnoException).code)
+    .sort();
+  assert.deepEqual(failureCodes, ['EEXIST', 'ENOENT']);
   assert.deepEqual(await readdir(join(runRoot, 'workspaces')), []);
 
   await rename(unavailableSchemaPath, schemaPath);

@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, mkdtemp, open, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
+import { dirname, isAbsolute, join, parse, posix, relative, resolve, sep } from 'node:path';
 import type { ExperimentCondition, ExperimentTask } from './schema.js';
 
 export interface PreparedWorkspace {
@@ -18,12 +18,31 @@ export interface PrepareWorkspaceOptions {
 }
 
 const fixturePrefix = 'fixtures/';
+const workspaceReservations = new Set<string>();
 
 export async function prepareWorkspace(options: PrepareWorkspaceOptions): Promise<PreparedWorkspace> {
   validateRunId(options.runId);
 
-  const workspacesDirectory = await prepareWorkspacesDirectory(options.runRoot);
-  const workspacePath = join(workspacesDirectory, options.runId);
+  const resolvedRunRoot = resolve(options.runRoot);
+  const workspacePath = join(resolvedRunRoot, 'workspaces', options.runId);
+  reserveWorkspace(workspacePath);
+
+  try {
+    return await prepareReservedWorkspace(options, resolvedRunRoot, workspacePath);
+  } finally {
+    workspaceReservations.delete(workspacePath);
+  }
+}
+
+async function prepareReservedWorkspace(
+  options: PrepareWorkspaceOptions,
+  resolvedRunRoot: string,
+  workspacePath: string
+): Promise<PreparedWorkspace> {
+  const experimentRoot = resolve(options.experimentRoot);
+  await validateDirectory(experimentRoot, 'experiment root');
+
+  const workspacesDirectory = await prepareWorkspacesDirectory(resolvedRunRoot);
   await assertPathDoesNotExist(workspacePath);
 
   let temporaryPath: string | undefined;
@@ -33,28 +52,30 @@ export async function prepareWorkspace(options: PrepareWorkspaceOptions): Promis
 
     for (const inputFile of options.task.inputFiles) {
       validateFixturePath(inputFile);
-      const sourcePath = resolve(options.experimentRoot, 'tasks', inputFile);
+      const sourcePath = resolve(experimentRoot, 'tasks', inputFile);
       const destinationPath = join(temporaryPath, ...inputFile.split('/'));
-      await copyRegularFile(sourcePath, destinationPath);
+      await copyRegularFile(experimentRoot, sourcePath, destinationPath);
     }
 
     if (options.condition === 'skill') {
       await copyRegularFile(
-        join(options.experimentRoot, 'reference-skill', 'SKILL.md'),
+        experimentRoot,
+        join(experimentRoot, 'reference-skill', 'SKILL.md'),
         join(temporaryPath, '.agents', 'skills', 'jq-query', 'SKILL.md')
       );
     }
 
     const temporarySchemaPath = join(temporaryPath, 'final-answer.schema.json');
     await copyRegularFile(
-      join(options.experimentRoot, 'schemas', 'final-answer.schema.json'),
+      experimentRoot,
+      join(experimentRoot, 'schemas', 'final-answer.schema.json'),
       temporarySchemaPath
     );
 
-    const promptParts = [await readRegularText(join(options.experimentRoot, 'prompts', 'common.txt'))];
+    const promptParts = [await readRegularText(experimentRoot, join(experimentRoot, 'prompts', 'common.txt'))];
     if (options.condition === 'explicit') {
       const explicitPrompt = options.task.id === 'T8' ? 'explicit-negative.txt' : 'explicit-applicable.txt';
-      promptParts.push(await readRegularText(join(options.experimentRoot, 'prompts', explicitPrompt)));
+      promptParts.push(await readRegularText(experimentRoot, join(experimentRoot, 'prompts', explicitPrompt)));
     }
     promptParts.push(options.task.prompt);
     const prompt = promptParts.map(normalizePromptText).join('\n');
@@ -81,20 +102,41 @@ export async function prepareWorkspace(options: PrepareWorkspaceOptions): Promis
 }
 
 async function prepareWorkspacesDirectory(runRoot: string): Promise<string> {
-  await mkdir(runRoot, { recursive: true, mode: 0o700 });
+  await ensureSafeDirectoryChain(runRoot);
   const workspacesDirectory = join(runRoot, 'workspaces');
+  await ensureSafeDirectoryComponent(workspacesDirectory);
+  return workspacesDirectory;
+}
 
+async function ensureSafeDirectoryChain(path: string): Promise<void> {
+  const absolutePath = resolve(path);
+  const root = parse(absolutePath).root;
+  await validateDirectory(root, 'destination path');
+
+  let currentPath = root;
+  const remainder = relative(root, absolutePath);
+  if (remainder.length === 0) return;
+
+  for (const component of remainder.split(sep)) {
+    currentPath = join(currentPath, component);
+    await ensureSafeDirectoryComponent(currentPath);
+  }
+}
+
+async function ensureSafeDirectoryComponent(path: string): Promise<void> {
   try {
-    await mkdir(workspacesDirectory, { mode: 0o700 });
+    await mkdir(path, { mode: 0o700 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
   }
+  await validateDirectory(path, 'destination path');
+}
 
-  const stats = await lstat(workspacesDirectory);
+async function validateDirectory(path: string, label: string): Promise<void> {
+  const stats = await lstat(path);
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
-    throw new Error(`Unsafe workspaces directory: ${workspacesDirectory}`);
+    throw new Error(`Unsafe ${label} directory: ${path}`);
   }
-  return workspacesDirectory;
 }
 
 async function assertPathDoesNotExist(path: string): Promise<void> {
@@ -105,22 +147,21 @@ async function assertPathDoesNotExist(path: string): Promise<void> {
     throw error;
   }
 
-  const error = new Error(`Workspace already exists: ${path}`) as NodeJS.ErrnoException;
-  error.code = 'EEXIST';
-  throw error;
+  throw workspaceExistsError(path);
 }
 
-async function copyRegularFile(sourcePath: string, destinationPath: string): Promise<void> {
-  const contents = await readRegularFile(sourcePath);
+async function copyRegularFile(experimentRoot: string, sourcePath: string, destinationPath: string): Promise<void> {
+  const contents = await readRegularFile(experimentRoot, sourcePath);
   await mkdir(dirname(destinationPath), { recursive: true, mode: 0o700 });
   await writeFile(destinationPath, contents, { flag: 'wx', mode: 0o600 });
 }
 
-async function readRegularText(sourcePath: string): Promise<string> {
-  return (await readRegularFile(sourcePath)).toString('utf8');
+async function readRegularText(experimentRoot: string, sourcePath: string): Promise<string> {
+  return (await readRegularFile(experimentRoot, sourcePath)).toString('utf8');
 }
 
-async function readRegularFile(sourcePath: string): Promise<Buffer> {
+async function readRegularFile(experimentRoot: string, sourcePath: string): Promise<Buffer> {
+  await validateSourcePath(experimentRoot, sourcePath);
   const pathStats = await lstat(sourcePath, { bigint: true });
   if (pathStats.isSymbolicLink() || !pathStats.isFile()) {
     throw new Error(`Source must be a regular non-symlink file: ${sourcePath}`);
@@ -142,6 +183,37 @@ async function readRegularFile(sourcePath: string): Promise<Buffer> {
   } finally {
     await handle.close();
   }
+}
+
+async function validateSourcePath(experimentRoot: string, sourcePath: string): Promise<void> {
+  const relativeSourcePath = relative(experimentRoot, sourcePath);
+  if (
+    relativeSourcePath.length === 0 ||
+    isAbsolute(relativeSourcePath) ||
+    relativeSourcePath === '..' ||
+    relativeSourcePath.startsWith(`..${sep}`)
+  ) {
+    throw new Error(`Source must be below the experiment root: ${sourcePath}`);
+  }
+
+  await validateDirectory(experimentRoot, 'experiment root');
+  let currentPath = experimentRoot;
+  const components = relativeSourcePath.split(sep);
+  for (const component of components.slice(0, -1)) {
+    currentPath = join(currentPath, component);
+    await validateDirectory(currentPath, 'source path');
+  }
+}
+
+function reserveWorkspace(workspacePath: string): void {
+  if (workspaceReservations.has(workspacePath)) throw workspaceExistsError(workspacePath);
+  workspaceReservations.add(workspacePath);
+}
+
+function workspaceExistsError(workspacePath: string): NodeJS.ErrnoException {
+  const error = new Error(`Workspace already exists: ${workspacePath}`) as NodeJS.ErrnoException;
+  error.code = 'EEXIST';
+  return error;
 }
 
 function validateRunId(runId: string): void {
