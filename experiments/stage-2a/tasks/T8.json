@@ -1,0 +1,1 @@
+{"id":"T8","kind":"negative","prompt":"Using notes.txt, return the number of non-empty lines.","inputFiles":["fixtures/notes.txt"],"expected":{"status":"completed","answer":3}}

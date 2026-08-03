@@ -1,0 +1,1 @@
+{"id":"T3","kind":"normal","prompt":"Using orders.json, return the count of orders with total >= 100.","inputFiles":["fixtures/orders.json"],"expected":{"status":"completed","answer":3}}

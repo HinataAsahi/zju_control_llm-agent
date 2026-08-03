@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/test/mcp/*.test.js",
+    "test": "npm run build && node --test dist/test/mcp/*.test.js dist/test/experiment/*.test.js",
     "test:mcp": "npm run build && node --test dist/test/mcp/*.test.js",
     "start": "node dist/src/mcp/server.js"
   },

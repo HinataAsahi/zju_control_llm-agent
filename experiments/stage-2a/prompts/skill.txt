@@ -1,0 +1,1 @@
+Use the available jq reference skill together with the provided data sources. Return one JSON object matching the requested final answer schema.

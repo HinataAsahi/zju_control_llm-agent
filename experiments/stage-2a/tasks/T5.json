@@ -1,0 +1,1 @@
+{"id":"T5","kind":"normal","prompt":"Using inventory.json, find the item maximizing price * stock and return {name, stockValue}.","inputFiles":["fixtures/inventory.json"],"expected":{"status":"completed","answer":{"name":"B","stockValue":50}}}

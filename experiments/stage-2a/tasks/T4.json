@@ -1,0 +1,1 @@
+{"id":"T4","kind":"normal","prompt":"Using orders.json, return total order value by region.","inputFiles":["fixtures/orders.json"],"expected":{"status":"completed","answer":{"east":220,"west":330}}}

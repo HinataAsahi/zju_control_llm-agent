@@ -1,0 +1,1 @@
+{"id":"T2","kind":"normal","prompt":"Using users.json, return the names of active users in file order.","inputFiles":["fixtures/users.json"],"expected":{"status":"completed","answer":["Alice","Carol","Dave"]}}

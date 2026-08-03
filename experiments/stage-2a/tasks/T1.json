@@ -1,0 +1,1 @@
+{"id":"T1","kind":"normal","prompt":"Given the inline JSON {\"values\":[3,8,8,2,11]}, return the count of values greater than 5.","inputFiles":[],"expected":{"status":"completed","answer":3}}

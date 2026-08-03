@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "status": { "enum": ["completed", "cannot_complete"] },
+    "answer": {},
+    "explanation": { "type": "string" }
+  },
+  "required": ["status", "answer", "explanation"]
+}

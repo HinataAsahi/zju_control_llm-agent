@@ -1,0 +1,1 @@
+Use the jq_query tool to query JSON input. Select either inline data or a relative file path from the provided task files. Return one JSON object matching the requested final answer schema.
