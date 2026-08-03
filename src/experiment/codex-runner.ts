@@ -1,8 +1,10 @@
-import { createWriteStream } from 'node:fs';
-import { mkdir, open } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { createWriteStream } from 'node:fs';
+import { mkdir, open, unlink } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import type { ChildProcess, SpawnOptions } from 'node:child_process';
+import { join, resolve } from 'node:path';
+import type { Readable, Writable } from 'node:stream';
 import type { PreparedWorkspace } from './workspace.js';
 
 export interface ModelConfiguration {
@@ -29,11 +31,50 @@ export interface RawCodexRun {
   timedOut: boolean;
 }
 
+type ProcessSpawner = (executable: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
+type WriteStreamFactory = (path: string) => Writable;
+interface RunnerTimings {
+  terminationGraceMs: number;
+  forceSettleMs: number;
+  versionTimeoutMs: number;
+}
+
 const supportedModels = new Set<ModelConfiguration['model']>(['gpt-5.6-luna', 'gpt-5.6-terra']);
 const supportedReasoningEfforts = new Set<ModelConfiguration['reasoningEffort']>(['low', 'medium']);
-const terminationGraceMs = 250;
-const versionTimeoutMs = 3_000;
 const maximumVersionBytes = 8_192;
+const defaultTimings: RunnerTimings = {
+  terminationGraceMs: 250,
+  forceSettleMs: 250,
+  versionTimeoutMs: 3_000
+};
+let processSpawner: ProcessSpawner = spawn;
+let artifactTokenFactory: () => string = randomUUID;
+let writeStreamFactory: WriteStreamFactory = path => createWriteStream(path, { flags: 'r+', mode: 0o600 });
+let runnerTimings = defaultTimings;
+
+export function setCodexRunnerSpawnForTesting(spawner: ProcessSpawner): () => void {
+  const previous = processSpawner;
+  processSpawner = spawner;
+  return () => { processSpawner = previous; };
+}
+
+export function setCodexArtifactTokenForTesting(factory: () => string): () => void {
+  const previous = artifactTokenFactory;
+  artifactTokenFactory = factory;
+  return () => { artifactTokenFactory = previous; };
+}
+
+export function setCodexWriteStreamFactoryForTesting(factory: WriteStreamFactory): () => void {
+  const previous = writeStreamFactory;
+  writeStreamFactory = factory;
+  return () => { writeStreamFactory = previous; };
+}
+
+export function setCodexRunnerTimingsForTesting(timings: RunnerTimings): () => void {
+  const previous = runnerTimings;
+  runnerTimings = timings;
+  return () => { runnerTimings = previous; };
+}
 
 export async function runCodex(request: CodexRunRequest): Promise<RawCodexRun> {
   validateRequest(request);
@@ -41,121 +82,482 @@ export async function runCodex(request: CodexRunRequest): Promise<RawCodexRun> {
   const schemaPath = resolve(request.workspace.outputSchemaPath);
   const serverEntrypoint = resolve(request.serverEntrypoint);
   const artifactsDirectory = resolve(request.artifactsDirectory);
-  await mkdir(artifactsDirectory, { recursive: true, mode: 0o700 });
+  const paths = await reserveArtifacts(artifactsDirectory, artifactTokenFactory());
 
-  const runToken = randomUUID();
-  const stdoutPath = `${artifactsDirectory}/codex-${runToken}.stdout`;
-  const stderrPath = `${artifactsDirectory}/codex-${runToken}.stderr`;
-  const [stdoutHandle, stderrHandle] = await Promise.all([
-    open(stdoutPath, 'wx', 0o600),
-    open(stderrPath, 'wx', 0o600)
-  ]);
-  const stdout = createWriteStream('', { fd: stdoutHandle.fd, autoClose: true });
-  const stderr = createWriteStream('', { fd: stderrHandle.fd, autoClose: true });
+  let stdoutArtifact: Writable | undefined;
+  let stderrArtifact: Writable | undefined;
+  try {
+    stdoutArtifact = writeStreamFactory(paths.stdoutPath);
+    stderrArtifact = writeStreamFactory(paths.stderrPath);
+  } catch (error) {
+    await closeWritableStreams([stdoutArtifact, stderrArtifact]);
+    await removeArtifacts(paths);
+    throw contextualError('Unable to create Codex artifact streams', error);
+  }
 
-  const args = buildArguments(request, workspacePath, schemaPath, serverEntrypoint);
+  return await executeCodex(
+    request,
+    buildArguments(request, workspacePath, schemaPath, serverEntrypoint),
+    workspacePath,
+    paths,
+    stdoutArtifact,
+    stderrArtifact
+  );
+}
+
+async function executeCodex(
+  request: CodexRunRequest,
+  args: string[],
+  workspacePath: string,
+  paths: ArtifactPaths,
+  stdoutArtifact: Writable,
+  stderrArtifact: Writable
+): Promise<RawCodexRun> {
   const startedAt = Date.now();
   return await new Promise<RawCodexRun>((resolveRun, rejectRun) => {
+    let child: ChildProcess | undefined;
     let settled = false;
+    let finalizing = false;
     let timedOut = false;
+    let terminalError: Error | undefined;
+    let childTerminal = false;
+    let closeObserved = false;
+    let forcedTerminal = false;
+    let exitCode: number | null = null;
+    let signal: NodeJS.Signals | null = null;
+    let stdoutClosed = false;
+    let stderrClosed = false;
+    let timeoutTimer: NodeJS.Timeout | undefined;
     let graceTimer: NodeJS.Timeout | undefined;
-    let closed: { exitCode: number | null; signal: NodeJS.Signals | null } | undefined;
-    let stdoutFinished = false;
-    let stderrFinished = false;
-    const child = spawn(request.codexExecutable, args, {
-      cwd: workspacePath,
-      env: codexEnvironment(),
-      shell: false,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    const timeoutTimer = setTimeout(() => {
-      timedOut = true;
-      if (!child.kill('SIGTERM')) settle(undefined, null, null);
-      graceTimer = setTimeout(() => {
-        if (!child.kill('SIGKILL')) settle(undefined, null, null);
-      }, terminationGraceMs);
-    }, request.timeoutMs);
-    timeoutTimer.unref();
+    let forceTimer: NodeJS.Timeout | undefined;
+    let closeTimer: NodeJS.Timeout | undefined;
 
-    const settle = (error?: Error, exitCode: number | null = null, signal: NodeJS.Signals | null = null): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeoutTimer);
+    const clearTimers = (): void => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
       if (graceTimer) clearTimeout(graceTimer);
-      if (error) {
-        child.kill('SIGKILL');
-        rejectRun(error);
+      if (forceTimer) clearTimeout(forceTimer);
+      if (closeTimer) clearTimeout(closeTimer);
+      timeoutTimer = graceTimer = forceTimer = closeTimer = undefined;
+    };
+
+    const destroyOwnedResources = (): void => {
+      if (child) {
+        destroyStream(child.stdin);
+        destroyStream(child.stdout);
+        destroyStream(child.stderr);
+      }
+      destroyStream(stdoutArtifact);
+      destroyStream(stderrArtifact);
+    };
+
+    const finish = async (): Promise<void> => {
+      if (finalizing || settled || !childTerminal || !stdoutClosed || !stderrClosed) return;
+      finalizing = true;
+      clearTimers();
+      cleanupListeners();
+      if (child && forcedTerminal && !closeObserved) guardLateErrors(child, [stdoutArtifact, stderrArtifact]);
+      try {
+        if (terminalError) {
+          await removeArtifacts(paths);
+          settled = true;
+          rejectRun(terminalError);
+          return;
+        }
+        settled = true;
+        resolveRun({
+          exitCode,
+          signal,
+          durationMs: Date.now() - startedAt,
+          stdoutPath: paths.stdoutPath,
+          stderrPath: paths.stderrPath,
+          timedOut
+        });
+      } catch (error) {
+        settled = true;
+        rejectRun(contextualError('Unable to clean failed Codex artifacts', error));
+      }
+    };
+
+    const scheduleCloseWatchdog = (): void => {
+      if (settled || finalizing || closeTimer) return;
+      closeTimer = setTimeout(() => {
+        closeTimer = undefined;
+        if (!stdoutClosed || !stderrClosed) {
+          terminalError ??= new Error('Codex artifact streams did not close');
+          destroyOwnedResources();
+          stdoutClosed ||= streamIsClosed(stdoutArtifact);
+          stderrClosed ||= streamIsClosed(stderrArtifact);
+          if (!stdoutClosed || !stderrClosed) {
+            stdoutClosed = true;
+            stderrClosed = true;
+          }
+        }
+        void finish();
+      }, runnerTimings.forceSettleMs);
+    };
+
+    const forceTerminalState = (): void => {
+      if (settled || finalizing) return;
+      forceTimer = undefined;
+      forcedTerminal = true;
+      childTerminal = true;
+      exitCode = child?.exitCode ?? null;
+      signal = child?.signalCode ?? null;
+      destroyOwnedResources();
+      stdoutClosed ||= streamIsClosed(stdoutArtifact);
+      stderrClosed ||= streamIsClosed(stderrArtifact);
+      scheduleCloseWatchdog();
+      void finish();
+    };
+
+    const scheduleForceSettlement = (): void => {
+      if (settled || finalizing || forceTimer) return;
+      forceTimer = setTimeout(forceTerminalState, runnerTimings.forceSettleMs);
+    };
+
+    const killChild = (requestedSignal: NodeJS.Signals): void => {
+      if (!child || settled || finalizing) return;
+      try {
+        child.kill(requestedSignal);
+      } catch (error) {
+        terminalError ??= contextualError(`Unable to send ${requestedSignal} to Codex`, error);
+      }
+    };
+
+    const fail = (error: unknown, context: string): void => {
+      if (settled || finalizing) return;
+      terminalError ??= contextualError(context, error);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (graceTimer) clearTimeout(graceTimer);
+      timeoutTimer = graceTimer = undefined;
+      killChild('SIGKILL');
+      scheduleForceSettlement();
+      destroyStream(child?.stdin);
+    };
+
+    const onTimeout = (): void => {
+      if (settled || finalizing || childTerminal) return;
+      timedOut = true;
+      timeoutTimer = undefined;
+      killChild('SIGTERM');
+      if (terminalError) {
+        killChild('SIGKILL');
+        scheduleForceSettlement();
         return;
       }
-      resolveRun({
-        exitCode,
-        signal,
-        durationMs: Date.now() - startedAt,
-        stdoutPath,
-        stderrPath,
-        timedOut
+      if (settled || finalizing || childTerminal) return;
+      graceTimer = setTimeout(() => {
+        graceTimer = undefined;
+        if (settled || finalizing || childTerminal) return;
+        killChild('SIGKILL');
+        scheduleForceSettlement();
+      }, runnerTimings.terminationGraceMs);
+    };
+
+    const onChildError = (error: Error): void => fail(error, 'Unable to launch Codex');
+    const onStdinError = (error: Error): void => fail(error, 'Codex stdin failed');
+    const onStdoutError = (error: Error): void => fail(error, 'Codex stdout stream failed');
+    const onStderrError = (error: Error): void => fail(error, 'Codex stderr stream failed');
+    const onStdoutArtifactError = (error: Error): void => fail(error, 'Codex stdout artifact failed');
+    const onStderrArtifactError = (error: Error): void => fail(error, 'Codex stderr artifact failed');
+    const onStdoutArtifactClose = (): void => { stdoutClosed = true; void finish(); };
+    const onStderrArtifactClose = (): void => { stderrClosed = true; void finish(); };
+    const onClose = (code: number | null, closeSignal: NodeJS.Signals | null): void => {
+      closeObserved = true;
+      childTerminal = true;
+      exitCode = code;
+      signal = closeSignal;
+      if (graceTimer) clearTimeout(graceTimer);
+      if (forceTimer) clearTimeout(forceTimer);
+      graceTimer = forceTimer = undefined;
+      scheduleCloseWatchdog();
+      void finish();
+    };
+
+    const cleanupListeners = (): void => {
+      if (child) {
+        child.removeListener('error', onChildError);
+        child.removeListener('close', onClose);
+        child.stdin?.removeListener('error', onStdinError);
+        child.stdout?.removeListener('error', onStdoutError);
+        child.stderr?.removeListener('error', onStderrError);
+      }
+      stdoutArtifact.removeListener('error', onStdoutArtifactError);
+      stderrArtifact.removeListener('error', onStderrArtifactError);
+      stdoutArtifact.removeListener('close', onStdoutArtifactClose);
+      stderrArtifact.removeListener('close', onStderrArtifactClose);
+    };
+
+    stdoutArtifact.on('error', onStdoutArtifactError);
+    stderrArtifact.on('error', onStderrArtifactError);
+    stdoutArtifact.once('close', onStdoutArtifactClose);
+    stderrArtifact.once('close', onStderrArtifactClose);
+
+    try {
+      child = processSpawner(request.codexExecutable, args, {
+        cwd: workspacePath,
+        env: codexEnvironment(),
+        shell: false,
+        stdio: ['pipe', 'pipe', 'pipe']
       });
-    };
-    const settleWhenDrained = (): void => {
-      if (closed && stdoutFinished && stderrFinished) settle(undefined, closed.exitCode, closed.signal);
-    };
-    child.stdout.pipe(stdout);
-    child.stderr.pipe(stderr);
-    child.stdout.once('error', error => settle(new Error(`Codex stdout stream failed: ${error.message}`)));
-    child.stderr.once('error', error => settle(new Error(`Codex stderr stream failed: ${error.message}`)));
-    stdout.once('error', error => settle(new Error(`Codex stdout artifact failed: ${error.message}`)));
-    stderr.once('error', error => settle(new Error(`Codex stderr artifact failed: ${error.message}`)));
-    child.once('error', error => settle(new Error(`Unable to launch Codex: ${error.message}`)));
-    child.once('close', (exitCode, signal) => {
-      closed = { exitCode, signal };
-      settleWhenDrained();
-    });
-    stdout.once('finish', () => { stdoutFinished = true; settleWhenDrained(); });
-    stderr.once('finish', () => { stderrFinished = true; settleWhenDrained(); });
-    child.stdin.once('error', error => settle(new Error(`Codex stdin failed: ${error.message}`)));
-    child.stdin.end(request.workspace.prompt);
+    } catch (error) {
+      terminalError = contextualError('Unable to launch Codex', error);
+      childTerminal = true;
+      destroyOwnedResources();
+      scheduleCloseWatchdog();
+      void finish();
+      return;
+    }
+
+    if (!child.stdin || !child.stdout || !child.stderr) {
+      fail(new Error('Codex process did not provide piped stdio'), 'Unable to launch Codex');
+      return;
+    }
+
+    child.on('error', onChildError);
+    child.once('close', onClose);
+    child.stdin.on('error', onStdinError);
+    child.stdout.on('error', onStdoutError);
+    child.stderr.on('error', onStderrError);
+    try {
+      child.stdout.pipe(stdoutArtifact);
+      child.stderr.pipe(stderrArtifact);
+      timeoutTimer = setTimeout(onTimeout, request.timeoutMs);
+      child.stdin.end(request.workspace.prompt);
+    } catch (error) {
+      fail(error, 'Unable to connect Codex process streams');
+    }
   });
 }
 
 export async function readCodexVersion(executable = 'codex'): Promise<string> {
   return await new Promise<string>((resolveVersion, rejectVersion) => {
+    let child: ChildProcess;
     let settled = false;
-    let output = '';
-    let stderr = '';
     let outputBytes = 0;
-    const child = spawn(executable, ['--version'], { env: codexEnvironment(), shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), terminationGraceMs).unref();
-      settle(new Error(`Codex version command timed out after ${versionTimeoutMs}ms`));
-    }, versionTimeoutMs);
-    timer.unref();
-    const settle = (error?: Error): void => {
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let terminalError: Error | undefined;
+    let timeoutTimer: NodeJS.Timeout | undefined;
+    let graceTimer: NodeJS.Timeout | undefined;
+    let forceTimer: NodeJS.Timeout | undefined;
+
+    const clearTimers = (): void => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (graceTimer) clearTimeout(graceTimer);
+      if (forceTimer) clearTimeout(forceTimer);
+      timeoutTimer = graceTimer = forceTimer = undefined;
+    };
+
+    const cleanup = (): void => {
+      child.removeListener('error', onChildError);
+      child.removeListener('close', onClose);
+      child.stdout?.removeListener('data', onStdoutData);
+      child.stderr?.removeListener('data', onStderrData);
+      child.stdout?.removeListener('error', onStreamError);
+      child.stderr?.removeListener('error', onStreamError);
+    };
+
+    const settle = (error?: Error, version?: string, forced = false): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimers();
+      cleanup();
+      if (forced) guardLateErrors(child);
       if (error) rejectVersion(error);
-      else resolveVersion(output.trim());
+      else resolveVersion(version!);
     };
-    const append = (chunk: Buffer, target: 'stdout' | 'stderr'): void => {
+
+    const scheduleForceSettlement = (): void => {
+      if (settled || forceTimer) return;
+      forceTimer = setTimeout(() => {
+        destroyStream(child.stdout);
+        destroyStream(child.stderr);
+        settle(terminalError ?? new Error('Codex version command did not terminate'), undefined, true);
+      }, runnerTimings.forceSettleMs);
+    };
+
+    const killChild = (requestedSignal: NodeJS.Signals): void => {
+      if (settled) return;
+      try {
+        child.kill(requestedSignal);
+      } catch (error) {
+        terminalError ??= contextualError(`Unable to send ${requestedSignal} to Codex version command`, error);
+      }
+    };
+
+    const terminateImmediately = (error: Error): void => {
+      if (settled || terminalError) return;
+      terminalError = error;
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (graceTimer) clearTimeout(graceTimer);
+      timeoutTimer = graceTimer = undefined;
+      killChild('SIGKILL');
+      scheduleForceSettlement();
+    };
+
+    const collect = (target: Buffer[]) => (chunk: Buffer): void => {
+      if (settled || terminalError) return;
       outputBytes += chunk.length;
       if (outputBytes > maximumVersionBytes) {
-        child.kill('SIGTERM');
-        setTimeout(() => child.kill('SIGKILL'), terminationGraceMs).unref();
-        settle(new Error('Codex version output exceeded 8192 bytes'));
+        terminateImmediately(new Error('Codex version output exceeded 8192 bytes'));
         return;
       }
-      if (target === 'stdout') output += chunk.toString('utf8');
-      else stderr += chunk.toString('utf8');
+      target.push(chunk);
     };
-    child.stdout.on('data', chunk => append(chunk as Buffer, 'stdout'));
-    child.stderr.on('data', chunk => append(chunk as Buffer, 'stderr'));
-    child.once('error', error => settle(new Error(`Unable to read Codex version: ${error.message}`)));
-    child.once('close', code => {
-      if (code === 0) settle();
-      else settle(new Error(`Codex version command exited with ${code ?? 'no exit code'}: ${stderr.trim()}`));
-    });
+    const onStdoutData = collect(stdout);
+    const onStderrData = collect(stderr);
+    const onStreamError = (error: Error): void => terminateImmediately(contextualError('Codex version stream failed', error));
+    const onChildError = (error: Error): void => terminateImmediately(contextualError('Unable to read Codex version', error));
+    const onClose = (code: number | null): void => {
+      if (terminalError) {
+        settle(terminalError);
+        return;
+      }
+      const output = Buffer.concat(stdout).toString('utf8').trim();
+      const errorOutput = Buffer.concat(stderr).toString('utf8').trim();
+      if (code !== 0) {
+        settle(new Error(`Codex version command exited with ${code ?? 'no exit code'}${errorOutput ? `: ${errorOutput}` : ''}`));
+        return;
+      }
+      if (!/\bcodex\b/i.test(output)) {
+        settle(new Error('Codex version command did not return a valid Codex version'));
+        return;
+      }
+      settle(undefined, output);
+    };
+
+    try {
+      child = processSpawner(executable, ['--version'], {
+        env: codexEnvironment(),
+        shell: false,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+    } catch (error) {
+      rejectVersion(contextualError('Unable to read Codex version', error));
+      return;
+    }
+
+    if (!child.stdout || !child.stderr) {
+      settle(new Error('Codex version process did not provide piped output'));
+      return;
+    }
+    child.on('error', onChildError);
+    child.once('close', onClose);
+    child.stdout.on('data', onStdoutData);
+    child.stderr.on('data', onStderrData);
+    child.stdout.on('error', onStreamError);
+    child.stderr.on('error', onStreamError);
+    timeoutTimer = setTimeout(() => {
+      timeoutTimer = undefined;
+      terminalError = new Error(`Codex version command timed out after ${runnerTimings.versionTimeoutMs}ms`);
+      killChild('SIGTERM');
+      if (settled) return;
+      graceTimer = setTimeout(() => {
+        graceTimer = undefined;
+        if (settled) return;
+        killChild('SIGKILL');
+        scheduleForceSettlement();
+      }, runnerTimings.terminationGraceMs);
+    }, runnerTimings.versionTimeoutMs);
   });
+}
+
+interface ArtifactPaths {
+  stdoutPath: string;
+  stderrPath: string;
+}
+
+async function reserveArtifacts(artifactsDirectory: string, token: string): Promise<ArtifactPaths> {
+  await mkdir(artifactsDirectory, { recursive: true, mode: 0o700 });
+  const paths = {
+    stdoutPath: join(artifactsDirectory, `codex-${token}.stdout`),
+    stderrPath: join(artifactsDirectory, `codex-${token}.stderr`)
+  };
+  const created: string[] = [];
+  try {
+    for (const path of [paths.stdoutPath, paths.stderrPath]) {
+      const handle = await open(path, 'wx', 0o600);
+      created.push(path);
+      try {
+        await handle.close();
+      } catch (error) {
+        await handle.close().catch(() => {});
+        throw error;
+      }
+    }
+    return paths;
+  } catch (error) {
+    await removePaths(created);
+    throw error;
+  }
+}
+
+async function removeArtifacts(paths: ArtifactPaths): Promise<void> {
+  await removePaths([paths.stdoutPath, paths.stderrPath]);
+}
+
+async function removePaths(paths: string[]): Promise<void> {
+  const results = await Promise.allSettled(paths.map(path => unlink(path)));
+  const failure = results.find(result => result.status === 'rejected' && !isErrno(result.reason, 'ENOENT'));
+  if (failure?.status === 'rejected') throw failure.reason;
+}
+
+async function closeWritableStreams(streams: Array<Writable | undefined>): Promise<void> {
+  await Promise.all(streams.map(async stream => {
+    if (!stream) return;
+    if (streamIsClosed(stream)) return;
+    await new Promise<void>(resolveClose => {
+      const timer = setTimeout(resolveClose, runnerTimings.forceSettleMs);
+      const ignoreError = (_error: Error): void => {};
+      stream.on('error', ignoreError);
+      stream.once('close', () => {
+        clearTimeout(timer);
+        stream.removeListener('error', ignoreError);
+        resolveClose();
+      });
+      destroyStream(stream);
+    });
+  }));
+}
+
+function guardLateErrors(child: ChildProcess, additionalStreams: Writable[] = []): void {
+  const ignoreError = (_error: Error): void => {};
+  const streams: Array<Readable | Writable> = [
+    child.stdin,
+    child.stdout,
+    child.stderr,
+    ...additionalStreams
+  ].filter((stream): stream is Readable | Writable => stream !== null);
+  child.on('error', ignoreError);
+  for (const stream of streams) stream.on('error', ignoreError);
+  child.once('close', () => {
+    child.removeListener('error', ignoreError);
+    for (const stream of streams) stream.removeListener('error', ignoreError);
+  });
+  for (const stream of streams) destroyStream(stream);
+}
+
+function destroyStream(stream: Readable | Writable | null | undefined): void {
+  if (!stream || stream.destroyed) return;
+  try {
+    stream.destroy();
+  } catch {
+    // The force-settle watchdog remains responsible for settlement.
+  }
+}
+
+function streamIsClosed(stream: Writable): boolean {
+  return stream.closed;
+}
+
+function contextualError(context: string, error: unknown): Error {
+  const detail = error instanceof Error ? error.message : String(error);
+  return new Error(`${context}: ${detail}`, { cause: error });
+}
+
+function isErrno(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
 }
 
 function buildArguments(request: CodexRunRequest, workspacePath: string, schemaPath: string, serverEntrypoint: string): string[] {
