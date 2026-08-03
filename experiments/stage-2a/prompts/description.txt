@@ -1,1 +1,0 @@
-You have access to a jq query capability for structured JSON data. Use the provided data source when it is available, interpret tool failures, and return one JSON object matching the requested final answer schema.

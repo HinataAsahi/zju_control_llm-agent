@@ -1,0 +1,1 @@
+Complete the task using only the provided task prompt and input files. Return one JSON object that matches the final-answer schema.

@@ -1,1 +1,1 @@
-{"id":"T7","kind":"error-recovery","prompt":"Using users.json, first call jq_query with a filter containing if, then correct the call and return the count of active users.","inputFiles":["fixtures/users.json"],"expected":{"status":"completed","answer":3}}
+{"id":"T7","kind":"error-recovery","prompt":"Using users.json, first call jq_query with the filter exactly `if`, then correct the call and return the count of active users.","inputFiles":["fixtures/users.json"],"expected":{"status":"completed","answer":3}}
