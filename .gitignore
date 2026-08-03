@@ -4,4 +4,5 @@ docs/superpowers/
 *:Zone.Identifier
 node_modules/
 dist/
+.experiment-runs/
 /夏令营_简短.docx
