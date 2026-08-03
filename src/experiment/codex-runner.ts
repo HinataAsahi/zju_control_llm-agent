@@ -38,6 +38,16 @@ interface RunnerTimings {
   forceSettleMs: number;
   versionTimeoutMs: number;
 }
+interface CodexRunnerDependencies {
+  spawnProcess: ProcessSpawner;
+  createArtifactToken: () => string;
+  createArtifactStream: WriteStreamFactory;
+  timings: RunnerTimings;
+}
+interface CodexRunner {
+  runCodex(request: CodexRunRequest): Promise<RawCodexRun>;
+  readCodexVersion(executable?: string): Promise<string>;
+}
 
 const supportedModels = new Set<ModelConfiguration['model']>(['gpt-5.6-luna', 'gpt-5.6-terra']);
 const supportedReasoningEfforts = new Set<ModelConfiguration['reasoningEffort']>(['low', 'medium']);
@@ -47,51 +57,55 @@ const defaultTimings: RunnerTimings = {
   forceSettleMs: 250,
   versionTimeoutMs: 3_000
 };
-let processSpawner: ProcessSpawner = spawn;
-let artifactTokenFactory: () => string = randomUUID;
-let writeStreamFactory: WriteStreamFactory = path => createWriteStream(path, { flags: 'r+', mode: 0o600 });
-let runnerTimings = defaultTimings;
+const defaultDependencies: CodexRunnerDependencies = {
+  spawnProcess: spawn,
+  createArtifactToken: randomUUID,
+  createArtifactStream: path => createWriteStream(path, { flags: 'r+', mode: 0o600 }),
+  timings: defaultTimings
+};
 
-export function setCodexRunnerSpawnForTesting(spawner: ProcessSpawner): () => void {
-  const previous = processSpawner;
-  processSpawner = spawner;
-  return () => { processSpawner = previous; };
+function createCodexRunner(dependencies: CodexRunnerDependencies): CodexRunner {
+  return {
+    runCodex: request => runCodexWithDependencies(request, dependencies),
+    readCodexVersion: executable => readCodexVersionWithDependencies(executable ?? 'codex', dependencies)
+  };
 }
 
-export function setCodexArtifactTokenForTesting(factory: () => string): () => void {
-  const previous = artifactTokenFactory;
-  artifactTokenFactory = factory;
-  return () => { artifactTokenFactory = previous; };
+export function createCodexRunnerForTesting(overrides: Partial<CodexRunnerDependencies> = {}): CodexRunner {
+  return createCodexRunner({
+    ...defaultDependencies,
+    ...overrides,
+    timings: { ...defaultTimings, ...overrides.timings }
+  });
 }
 
-export function setCodexWriteStreamFactoryForTesting(factory: WriteStreamFactory): () => void {
-  const previous = writeStreamFactory;
-  writeStreamFactory = factory;
-  return () => { writeStreamFactory = previous; };
-}
-
-export function setCodexRunnerTimingsForTesting(timings: RunnerTimings): () => void {
-  const previous = runnerTimings;
-  runnerTimings = timings;
-  return () => { runnerTimings = previous; };
-}
+const defaultRunner = createCodexRunner(defaultDependencies);
 
 export async function runCodex(request: CodexRunRequest): Promise<RawCodexRun> {
+  return await defaultRunner.runCodex(request);
+}
+
+async function runCodexWithDependencies(
+  request: CodexRunRequest,
+  dependencies: CodexRunnerDependencies
+): Promise<RawCodexRun> {
   validateRequest(request);
   const workspacePath = resolve(request.workspace.path);
   const schemaPath = resolve(request.workspace.outputSchemaPath);
   const serverEntrypoint = resolve(request.serverEntrypoint);
   const artifactsDirectory = resolve(request.artifactsDirectory);
-  const paths = await reserveArtifacts(artifactsDirectory, artifactTokenFactory());
+  const paths = await reserveArtifacts(artifactsDirectory, dependencies.createArtifactToken());
 
   let stdoutArtifact: Writable | undefined;
   let stderrArtifact: Writable | undefined;
   try {
-    stdoutArtifact = writeStreamFactory(paths.stdoutPath);
-    stderrArtifact = writeStreamFactory(paths.stderrPath);
+    stdoutArtifact = dependencies.createArtifactStream(paths.stdoutPath);
+    stderrArtifact = dependencies.createArtifactStream(paths.stderrPath);
   } catch (error) {
-    await closeWritableStreams([stdoutArtifact, stderrArtifact]);
-    await removeArtifacts(paths);
+    const streams = [stdoutArtifact, stderrArtifact].filter((stream): stream is Writable => stream !== undefined);
+    const streamsClosed = await closeWritableStreams(streams, dependencies.timings.forceSettleMs);
+    if (streamsClosed) await removeArtifacts(paths);
+    else deferArtifactCleanup(paths, streams);
     throw contextualError('Unable to create Codex artifact streams', error);
   }
 
@@ -101,7 +115,8 @@ export async function runCodex(request: CodexRunRequest): Promise<RawCodexRun> {
     workspacePath,
     paths,
     stdoutArtifact,
-    stderrArtifact
+    stderrArtifact,
+    dependencies
   );
 }
 
@@ -111,7 +126,8 @@ async function executeCodex(
   workspacePath: string,
   paths: ArtifactPaths,
   stdoutArtifact: Writable,
-  stderrArtifact: Writable
+  stderrArtifact: Writable,
+  dependencies: CodexRunnerDependencies
 ): Promise<RawCodexRun> {
   const startedAt = Date.now();
   return await new Promise<RawCodexRun>((resolveRun, rejectRun) => {
@@ -178,6 +194,17 @@ async function executeCodex(
       }
     };
 
+    const rejectBeforeArtifactClose = (): void => {
+      if (finalizing || settled) return;
+      finalizing = true;
+      clearTimers();
+      cleanupListeners();
+      deferArtifactCleanup(paths, [stdoutArtifact, stderrArtifact]);
+      if (child && forcedTerminal && !closeObserved) guardLateErrors(child, [stdoutArtifact, stderrArtifact]);
+      settled = true;
+      rejectRun(terminalError ?? new Error('Codex artifact streams did not close'));
+    };
+
     const scheduleCloseWatchdog = (): void => {
       if (settled || finalizing || closeTimer) return;
       closeTimer = setTimeout(() => {
@@ -188,12 +215,12 @@ async function executeCodex(
           stdoutClosed ||= streamIsClosed(stdoutArtifact);
           stderrClosed ||= streamIsClosed(stderrArtifact);
           if (!stdoutClosed || !stderrClosed) {
-            stdoutClosed = true;
-            stderrClosed = true;
+            rejectBeforeArtifactClose();
+            return;
           }
         }
         void finish();
-      }, runnerTimings.forceSettleMs);
+      }, dependencies.timings.forceSettleMs);
     };
 
     const forceTerminalState = (): void => {
@@ -212,7 +239,7 @@ async function executeCodex(
 
     const scheduleForceSettlement = (): void => {
       if (settled || finalizing || forceTimer) return;
-      forceTimer = setTimeout(forceTerminalState, runnerTimings.forceSettleMs);
+      forceTimer = setTimeout(forceTerminalState, dependencies.timings.forceSettleMs);
     };
 
     const killChild = (requestedSignal: NodeJS.Signals): void => {
@@ -251,7 +278,7 @@ async function executeCodex(
         if (settled || finalizing || childTerminal) return;
         killChild('SIGKILL');
         scheduleForceSettlement();
-      }, runnerTimings.terminationGraceMs);
+      }, dependencies.timings.terminationGraceMs);
     };
 
     const onChildError = (error: Error): void => fail(error, 'Unable to launch Codex');
@@ -294,7 +321,7 @@ async function executeCodex(
     stderrArtifact.once('close', onStderrArtifactClose);
 
     try {
-      child = processSpawner(request.codexExecutable, args, {
+      child = dependencies.spawnProcess(request.codexExecutable, args, {
         cwd: workspacePath,
         env: codexEnvironment(),
         shell: false,
@@ -331,6 +358,13 @@ async function executeCodex(
 }
 
 export async function readCodexVersion(executable = 'codex'): Promise<string> {
+  return await defaultRunner.readCodexVersion(executable);
+}
+
+async function readCodexVersionWithDependencies(
+  executable: string,
+  dependencies: CodexRunnerDependencies
+): Promise<string> {
   return await new Promise<string>((resolveVersion, rejectVersion) => {
     let child: ChildProcess;
     let settled = false;
@@ -374,7 +408,7 @@ export async function readCodexVersion(executable = 'codex'): Promise<string> {
         destroyStream(child.stdout);
         destroyStream(child.stderr);
         settle(terminalError ?? new Error('Codex version command did not terminate'), undefined, true);
-      }, runnerTimings.forceSettleMs);
+      }, dependencies.timings.forceSettleMs);
     };
 
     const killChild = (requestedSignal: NodeJS.Signals): void => {
@@ -420,7 +454,7 @@ export async function readCodexVersion(executable = 'codex'): Promise<string> {
         settle(new Error(`Codex version command exited with ${code ?? 'no exit code'}${errorOutput ? `: ${errorOutput}` : ''}`));
         return;
       }
-      if (!/\bcodex\b/i.test(output)) {
+      if (!/^(?:codex-cli|codex) \d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(output)) {
         settle(new Error('Codex version command did not return a valid Codex version'));
         return;
       }
@@ -428,7 +462,7 @@ export async function readCodexVersion(executable = 'codex'): Promise<string> {
     };
 
     try {
-      child = processSpawner(executable, ['--version'], {
+      child = dependencies.spawnProcess(executable, ['--version'], {
         env: codexEnvironment(),
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe']
@@ -450,7 +484,7 @@ export async function readCodexVersion(executable = 'codex'): Promise<string> {
     child.stderr.on('error', onStreamError);
     timeoutTimer = setTimeout(() => {
       timeoutTimer = undefined;
-      terminalError = new Error(`Codex version command timed out after ${runnerTimings.versionTimeoutMs}ms`);
+      terminalError = new Error(`Codex version command timed out after ${dependencies.timings.versionTimeoutMs}ms`);
       killChild('SIGTERM');
       if (settled) return;
       graceTimer = setTimeout(() => {
@@ -458,8 +492,8 @@ export async function readCodexVersion(executable = 'codex'): Promise<string> {
         if (settled) return;
         killChild('SIGKILL');
         scheduleForceSettlement();
-      }, runnerTimings.terminationGraceMs);
-    }, runnerTimings.versionTimeoutMs);
+      }, dependencies.timings.terminationGraceMs);
+    }, dependencies.timings.versionTimeoutMs);
   });
 }
 
@@ -503,12 +537,41 @@ async function removePaths(paths: string[]): Promise<void> {
   if (failure?.status === 'rejected') throw failure.reason;
 }
 
-async function closeWritableStreams(streams: Array<Writable | undefined>): Promise<void> {
+function deferArtifactCleanup(paths: ArtifactPaths, streams: Writable[]): void {
+  const ignoreError = (_error: Error): void => {};
+  let cleanupStarted = false;
+  const removeGuards = (): void => {
+    for (const stream of streams) {
+      stream.removeListener('error', ignoreError);
+      stream.removeListener('close', attemptCleanup);
+    }
+  };
+  const attemptCleanup = (): void => {
+    if (cleanupStarted || !streams.every(streamIsClosed)) return;
+    cleanupStarted = true;
+    void (async () => {
+      try {
+        await removeArtifacts(paths);
+      } catch {
+        // Cleanup is best effort after the caller has already received the bounded failure.
+      } finally {
+        removeGuards();
+      }
+    })();
+  };
+
+  for (const stream of streams) {
+    stream.on('error', ignoreError);
+    if (!streamIsClosed(stream)) stream.once('close', attemptCleanup);
+  }
+  attemptCleanup();
+}
+
+async function closeWritableStreams(streams: Writable[], forceSettleMs: number): Promise<boolean> {
   await Promise.all(streams.map(async stream => {
-    if (!stream) return;
     if (streamIsClosed(stream)) return;
     await new Promise<void>(resolveClose => {
-      const timer = setTimeout(resolveClose, runnerTimings.forceSettleMs);
+      const timer = setTimeout(resolveClose, forceSettleMs);
       const ignoreError = (_error: Error): void => {};
       stream.on('error', ignoreError);
       stream.once('close', () => {
@@ -519,6 +582,7 @@ async function closeWritableStreams(streams: Array<Writable | undefined>): Promi
       destroyStream(stream);
     });
   }));
+  return streams.every(streamIsClosed);
 }
 
 function guardLateErrors(child: ChildProcess, additionalStreams: Writable[] = []): void {
@@ -588,7 +652,8 @@ function validateRequest(request: CodexRunRequest): void {
 function codexEnvironment(): NodeJS.ProcessEnv {
   const allowed = [
     'PATH', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME',
-    'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR', 'CODEX_HOME', 'OPENAI_API_KEY', 'HTTPS_PROXY', 'HTTP_PROXY',
+    'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR', 'CODEX_HOME', 'OPENAI_API_KEY', 'CODEX_API_KEY',
+    'CODEX_ACCESS_TOKEN', 'CODEX_CA_CERTIFICATE', 'HTTPS_PROXY', 'HTTP_PROXY',
     'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'TMPDIR', 'TEMP', 'TMP', 'USER', 'LOGNAME', 'LANG', 'LC_ALL',
     'SYSTEMROOT', 'COMSPEC', 'PATHEXT'
   ];

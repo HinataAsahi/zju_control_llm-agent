@@ -29,5 +29,6 @@ process.stderr.write('fake stderr\n');
 if (mode === 'nonzero') process.exit(7);
 if (mode === 'hang') {
   process.on('SIGTERM', () => {});
+  await writeFile(join(workspacePath, '.fake-codex-ready'), 'ready\n');
   setInterval(() => {}, 1_000);
 }
