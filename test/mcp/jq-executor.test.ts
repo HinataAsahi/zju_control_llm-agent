@@ -6,10 +6,10 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeJq, setSpawnForTesting, verifyJqExecutable } from '../src/jq-executor.js';
+import { executeJq, setSpawnForTesting, verifyJqExecutable } from '../../src/mcp/jq-executor.js';
 import type { SpawnOptions } from 'node:child_process';
-import type { Limits } from '../src/config.js';
-import { JqToolError } from '../src/jq-schema.js';
+import type { Limits } from '../../src/mcp/config.js';
+import { JqToolError } from '../../src/mcp/jq-schema.js';
 
 function limits(overrides: Partial<Limits> = {}): Limits {
   return {

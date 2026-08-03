@@ -90,12 +90,12 @@ Inspector 2.0.0 将判别式 `source` 联合渲染为一个通用 JSON 文本框
 
 ## 架构
 
-- `src/server.ts`：解析启动配置、验证 jq，并注册 MCP 服务和工具。
-- `src/jq-tool.ts`：编排来源解析、jq 执行与 MCP 工具结果。
-- `src/source-resolver.ts`：解析内联 JSON 或受限根目录下的文件。
-- `src/jq-executor.ts`：以受限参数和资源限制启动 jq，处理输出及错误。
-- `src/jq-schema.ts`：定义工具输入、输出和错误码的 Zod schema。
-- `test/`：覆盖配置、schema、来源解析、jq 执行、工具处理与 MCP stdio 集成。
+- `src/mcp/server.ts`：解析启动配置、验证 jq，并注册 MCP 服务和工具。
+- `src/mcp/jq-tool.ts`：编排来源解析、jq 执行与 MCP 工具结果。
+- `src/mcp/source-resolver.ts`：解析内联 JSON 或受限根目录下的文件。
+- `src/mcp/jq-executor.ts`：以受限参数和资源限制启动 jq，处理输出及错误。
+- `src/mcp/jq-schema.ts`：定义工具输入、输出和错误码的 Zod schema。
+- `test/mcp/`：覆盖配置、schema、来源解析、jq 执行、工具处理与 MCP stdio 集成。
 
 ## 测试命令
 
@@ -108,6 +108,6 @@ npm test
 构建后可运行聚焦测试，例如：
 
 ```bash
-node --test dist/test/jq-executor.test.js
-node --test dist/test/mcp-server.test.js
+node --test dist/test/mcp/jq-executor.test.js
+node --test dist/test/mcp/mcp-server.test.js
 ```

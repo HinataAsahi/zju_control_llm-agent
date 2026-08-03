@@ -3,7 +3,7 @@
     "jq-mcp-server": {
       "command": "node",
       "args": [
-        "dist/src/server.js",
+        "dist/src/mcp/server.js",
         "--root",
         "./fixtures"
       ]

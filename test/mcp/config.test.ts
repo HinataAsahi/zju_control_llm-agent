@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { DEFAULT_LIMITS, loadConfig } from '../src/config.js';
+import { DEFAULT_LIMITS, loadConfig } from '../../src/mcp/config.js';
 
 test('loads a canonical directory root with default settings', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'jq-config-'));

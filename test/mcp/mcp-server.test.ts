@@ -21,7 +21,7 @@ async function withClient(
   );
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [resolve('dist/src/server.js'), '--root', root]
+    args: [resolve('dist/src/mcp/server.js'), '--root', root]
   });
 
   try {
@@ -61,7 +61,7 @@ test('runs startup validation through a symlinked entrypoint', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'jq-mcp-server-link-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const entrypoint = join(directory, 'server-link.js');
-  await symlink(resolve('dist/src/server.js'), entrypoint);
+  await symlink(resolve('dist/src/mcp/server.js'), entrypoint);
 
   const result = await runProcess([entrypoint]);
 

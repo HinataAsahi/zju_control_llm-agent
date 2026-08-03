@@ -4,7 +4,7 @@ import {
   jqQueryInputSchema,
   jqQueryOutputSchema,
   MAX_JSON_DEPTH
-} from '../src/jq-schema.js';
+} from '../../src/mcp/jq-schema.js';
 
 function nestedArray(depth: number): unknown {
   let value: unknown = null;

@@ -5,9 +5,9 @@ import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { AppConfig } from '../src/config.js';
-import { JqToolError } from '../src/jq-schema.js';
-import { resolveSource } from '../src/source-resolver.js';
+import type { AppConfig } from '../../src/mcp/config.js';
+import { JqToolError } from '../../src/mcp/jq-schema.js';
+import { resolveSource } from '../../src/mcp/source-resolver.js';
 
 const limits = { inputLimitBytes: 1024, outputLimitBytes: 1024, timeoutMs: 5000 };
 

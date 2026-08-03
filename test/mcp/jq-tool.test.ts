@@ -3,9 +3,9 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { AppConfig } from '../src/config.js';
-import { createJqToolHandler } from '../src/jq-tool.js';
-import { JqToolError } from '../src/jq-schema.js';
+import type { AppConfig } from '../../src/mcp/config.js';
+import { createJqToolHandler } from '../../src/mcp/jq-tool.js';
+import { JqToolError } from '../../src/mcp/jq-schema.js';
 
 const limits = { inputLimitBytes: 1024, outputLimitBytes: 1024, timeoutMs: 5000 };
 
