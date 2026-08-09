@@ -1,0 +1,482 @@
+[
+  {
+    "taskId": "T1",
+    "condition": "explicit",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": true,
+    "mcpSelected": null,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mcp",
+    "usage": {
+      "inputTokens": 49395,
+      "cachedInputTokens": 31232,
+      "outputTokens": 248,
+      "reasoningOutputTokens": 50
+    },
+    "durationMs": 18021,
+    "notes": []
+  },
+  {
+    "taskId": "T1",
+    "condition": "description",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": false,
+    "firstCallValid": null,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "direct",
+    "usage": {
+      "inputTokens": 16185,
+      "cachedInputTokens": 0,
+      "outputTokens": 54,
+      "reasoningOutputTokens": 21
+    },
+    "durationMs": 9261,
+    "notes": []
+  },
+  {
+    "taskId": "T1",
+    "condition": "skill",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": false,
+    "firstCallValid": null,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "direct",
+    "usage": {
+      "inputTokens": 16304,
+      "cachedInputTokens": 9984,
+      "outputTokens": 41,
+      "reasoningOutputTokens": 0
+    },
+    "durationMs": 12712,
+    "notes": []
+  },
+  {
+    "taskId": "T2",
+    "condition": "explicit",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": true,
+    "mcpSelected": null,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mcp",
+    "usage": {
+      "inputTokens": 83054,
+      "cachedInputTokens": 76544,
+      "outputTokens": 396,
+      "reasoningOutputTokens": 40
+    },
+    "durationMs": 27692,
+    "notes": []
+  },
+  {
+    "taskId": "T2",
+    "condition": "description",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": false,
+    "firstCallValid": null,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "file-read",
+    "usage": {
+      "inputTokens": 32634,
+      "cachedInputTokens": 15104,
+      "outputTokens": 232,
+      "reasoningOutputTokens": 18
+    },
+    "durationMs": 16944,
+    "notes": []
+  },
+  {
+    "taskId": "T2",
+    "condition": "skill",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": true,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mixed",
+    "usage": {
+      "inputTokens": 85261,
+      "cachedInputTokens": 75520,
+      "outputTokens": 574,
+      "reasoningOutputTokens": 47
+    },
+    "durationMs": 35493,
+    "notes": []
+  },
+  {
+    "taskId": "T3",
+    "condition": "explicit",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": true,
+    "mcpSelected": null,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mcp",
+    "usage": {
+      "inputTokens": 83001,
+      "cachedInputTokens": 63488,
+      "outputTokens": 361,
+      "reasoningOutputTokens": 36
+    },
+    "durationMs": 29296,
+    "notes": []
+  },
+  {
+    "taskId": "T3",
+    "condition": "description",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": false,
+    "firstCallValid": null,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "shell",
+    "usage": {
+      "inputTokens": 32622,
+      "cachedInputTokens": 28160,
+      "outputTokens": 278,
+      "reasoningOutputTokens": 25
+    },
+    "durationMs": 16239,
+    "notes": []
+  },
+  {
+    "taskId": "T3",
+    "condition": "skill",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": true,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mixed",
+    "usage": {
+      "inputTokens": 102892,
+      "cachedInputTokens": 82688,
+      "outputTokens": 651,
+      "reasoningOutputTokens": 82
+    },
+    "durationMs": 32483,
+    "notes": []
+  },
+  {
+    "taskId": "T4",
+    "condition": "explicit",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": true,
+    "mcpSelected": null,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mcp",
+    "usage": {
+      "inputTokens": 83230,
+      "cachedInputTokens": 73472,
+      "outputTokens": 414,
+      "reasoningOutputTokens": 38
+    },
+    "durationMs": 25626,
+    "notes": []
+  },
+  {
+    "taskId": "T4",
+    "condition": "description",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": false,
+    "firstCallValid": null,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "shell",
+    "usage": {
+      "inputTokens": 49155,
+      "cachedInputTokens": 44288,
+      "outputTokens": 335,
+      "reasoningOutputTokens": 31
+    },
+    "durationMs": 19139,
+    "notes": []
+  },
+  {
+    "taskId": "T4",
+    "condition": "skill",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": true,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mixed",
+    "usage": {
+      "inputTokens": 103080,
+      "cachedInputTokens": 92672,
+      "outputTokens": 625,
+      "reasoningOutputTokens": 47
+    },
+    "durationMs": 32651,
+    "notes": []
+  },
+  {
+    "taskId": "T5",
+    "condition": "explicit",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": true,
+    "mcpSelected": null,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mcp",
+    "usage": {
+      "inputTokens": 83269,
+      "cachedInputTokens": 76544,
+      "outputTokens": 438,
+      "reasoningOutputTokens": 46
+    },
+    "durationMs": 28559,
+    "notes": []
+  },
+  {
+    "taskId": "T5",
+    "condition": "description",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": false,
+    "firstCallValid": null,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "file-read",
+    "usage": {
+      "inputTokens": 32616,
+      "cachedInputTokens": 28160,
+      "outputTokens": 247,
+      "reasoningOutputTokens": 35
+    },
+    "durationMs": 20882,
+    "notes": []
+  },
+  {
+    "taskId": "T5",
+    "condition": "skill",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": true,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mixed",
+    "usage": {
+      "inputTokens": 85341,
+      "cachedInputTokens": 65536,
+      "outputTokens": 721,
+      "reasoningOutputTokens": 170
+    },
+    "durationMs": 33239,
+    "notes": []
+  },
+  {
+    "taskId": "T6",
+    "condition": "explicit",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": true,
+    "mcpSelected": null,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mixed",
+    "usage": {
+      "inputTokens": 83181,
+      "cachedInputTokens": 76544,
+      "outputTokens": 445,
+      "reasoningOutputTokens": 108
+    },
+    "durationMs": 26589,
+    "notes": []
+  },
+  {
+    "taskId": "T6",
+    "condition": "description",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": false,
+    "firstCallValid": null,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "shell",
+    "usage": {
+      "inputTokens": 66225,
+      "cachedInputTokens": 60416,
+      "outputTokens": 510,
+      "reasoningOutputTokens": 53
+    },
+    "durationMs": 28244,
+    "notes": []
+  },
+  {
+    "taskId": "T6",
+    "condition": "skill",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": true,
+    "firstCallValid": true,
+    "recoverySuccess": null,
+    "negativeAvoidance": null,
+    "alternativePath": "mixed",
+    "usage": {
+      "inputTokens": 86156,
+      "cachedInputTokens": 76544,
+      "outputTokens": 691,
+      "reasoningOutputTokens": 117
+    },
+    "durationMs": 29621,
+    "notes": []
+  },
+  {
+    "taskId": "T7",
+    "condition": "explicit",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": true,
+    "mcpSelected": null,
+    "firstCallValid": true,
+    "recoverySuccess": true,
+    "negativeAvoidance": null,
+    "alternativePath": "mcp",
+    "usage": {
+      "inputTokens": 100795,
+      "cachedInputTokens": 92672,
+      "outputTokens": 652,
+      "reasoningOutputTokens": 290
+    },
+    "durationMs": 37226,
+    "notes": []
+  },
+  {
+    "taskId": "T7",
+    "condition": "description",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": null,
+    "firstCallValid": true,
+    "recoverySuccess": true,
+    "negativeAvoidance": null,
+    "alternativePath": "mcp",
+    "usage": {
+      "inputTokens": 83319,
+      "cachedInputTokens": 60416,
+      "outputTokens": 491,
+      "reasoningOutputTokens": 169
+    },
+    "durationMs": 36687,
+    "notes": []
+  },
+  {
+    "taskId": "T7",
+    "condition": "skill",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": null,
+    "firstCallValid": true,
+    "recoverySuccess": true,
+    "negativeAvoidance": null,
+    "alternativePath": "mixed",
+    "usage": {
+      "inputTokens": 138926,
+      "cachedInputTokens": 126976,
+      "outputTokens": 893,
+      "reasoningOutputTokens": 226
+    },
+    "durationMs": 75808,
+    "notes": []
+  },
+  {
+    "taskId": "T8",
+    "condition": "explicit",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": true,
+    "mcpSelected": null,
+    "firstCallValid": null,
+    "recoverySuccess": null,
+    "negativeAvoidance": true,
+    "alternativePath": "file-read",
+    "usage": {
+      "inputTokens": 32616,
+      "cachedInputTokens": 28160,
+      "outputTokens": 214,
+      "reasoningOutputTokens": 18
+    },
+    "durationMs": 22978,
+    "notes": []
+  },
+  {
+    "taskId": "T8",
+    "condition": "description",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": null,
+    "firstCallValid": null,
+    "recoverySuccess": null,
+    "negativeAvoidance": true,
+    "alternativePath": "shell",
+    "usage": {
+      "inputTokens": 32566,
+      "cachedInputTokens": 15104,
+      "outputTokens": 215,
+      "reasoningOutputTokens": 17
+    },
+    "durationMs": 17970,
+    "notes": []
+  },
+  {
+    "taskId": "T8",
+    "condition": "skill",
+    "validity": "valid",
+    "taskSuccess": true,
+    "explicitCompliance": null,
+    "mcpSelected": null,
+    "firstCallValid": null,
+    "recoverySuccess": null,
+    "negativeAvoidance": true,
+    "alternativePath": "shell",
+    "usage": {
+      "inputTokens": 32770,
+      "cachedInputTokens": 26112,
+      "outputTokens": 227,
+      "reasoningOutputTokens": 26
+    },
+    "durationMs": 20930,
+    "notes": []
+  }
+]
