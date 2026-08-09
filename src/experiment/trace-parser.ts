@@ -184,6 +184,8 @@ function processItem(
     return;
   }
 
+  if (['reasoning', 'file_change', 'web_search', 'plan_update'].includes(value.type)) return;
+
   unknown(`item:${value.type}`);
 }
 

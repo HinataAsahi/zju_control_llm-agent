@@ -70,12 +70,30 @@ test('retains partial observations while flagging malformed, unknown, and incomp
   const trace = await parseTrace(join(fixtures, 'truncated.jsonl'));
 
   assert.equal(trace.terminalStatus, 'incomplete');
-  assert.deepEqual(trace.unknownEventTypes, ['item:web_search', 'future.event']);
+  assert.deepEqual(trace.unknownEventTypes, ['item:future_item', 'future.event']);
   assert.equal(trace.parseErrors.length, 2);
   assert.match(trace.parseErrors[0] ?? '', /agent answer/);
   assert.match(trace.parseErrors[1] ?? '', /line 6/);
   assert.equal(trace.finalAnswer, undefined);
   assert.equal(trace.needsReview, true);
+});
+
+test('recognizes documented non-scoring item types without requiring review', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'trace-parser-'));
+  const path = join(directory, 'known-items.jsonl');
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(path, [
+    '{"type":"turn.started"}',
+    '{"type":"item.completed","item":{"id":"r","type":"reasoning","text":"summary"}}',
+    '{"type":"item.completed","item":{"id":"f","type":"file_change","changes":[]}}',
+    '{"type":"item.completed","item":{"id":"w","type":"web_search","query":"q"}}',
+    '{"type":"item.completed","item":{"id":"p","type":"plan_update","plan":[]}}',
+    '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}'
+  ].join('\n'));
+
+  const trace = await parseTrace(path);
+  assert.deepEqual(trace.unknownEventTypes, []);
+  assert.equal(trace.needsReview, false);
 });
 
 test('classifies turn.failed and error events as failed without discarding observations', async t => {
