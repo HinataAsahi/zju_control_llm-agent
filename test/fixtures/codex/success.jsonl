@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"thread-success"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"mcp-1","type":"mcp_tool_call","server":"jq_mcp_server","tool":"jq_query","arguments":{"filter":".users | length","source":{"type":"file","path":"fixtures/users.json"}},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"jq_mcp_server","tool":"jq_query","arguments":{"filter":".users | length","source":{"type":"file","path":"fixtures/users.json"}},"result":{"ok":true,"values":[4],"exitCode":0},"status":"completed"}}
+{"type":"item.completed","item":{"id":"answer-1","type":"agent_message","text":"{\"status\":\"completed\",\"answer\":4,\"explanation\":\"Counted the users.\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":120,"cached_input_tokens":20,"output_tokens":30,"reasoning_output_tokens":5}}

@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"thread-shell"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"cmd-1","type":"command_execution","command":"jq '.users | length' fixtures/users.json","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","command":"jq '.users | length' fixtures/users.json","aggregated_output":"4\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"answer-shell","type":"agent_message","text":"not json"}}
+{"type":"item.completed","item":{"id":"answer-shell-2","type":"agent_message","text":"{\"status\":\"completed\",\"answer\":4,\"explanation\":\"Used a command.\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":75,"cached_input_tokens":0,"output_tokens":20}}

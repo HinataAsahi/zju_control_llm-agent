@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"thread-truncated"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"unknown-1","type":"web_search","query":"not expected"}}
+{"type":"future.event","payload":{"value":1}}
+{"type":"item.completed","item":{"id":"answer-bad","type":"agent_message","text":"{\"status\":\"completed\",\"answer\":1}"}}
+not-json
