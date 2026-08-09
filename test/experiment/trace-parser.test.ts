@@ -53,6 +53,24 @@ test('preserves failed and successful MCP calls and sums completed-turn usage', 
   assert.equal(trace.needsReview, false);
 });
 
+test('treats a completed real-shape MCP item with error null as successful', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'trace-parser-'));
+  const path = join(directory, 'real-mcp.jsonl');
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(path, [
+    '{"type":"turn.started"}',
+    '{"type":"item.started","item":{"id":"mcp","type":"mcp_tool_call","server":"jq_mcp_server","tool":"jq_query","arguments":{"filter":"."},"result":null,"error":null,"status":"in_progress"}}',
+    '{"type":"item.completed","item":{"id":"mcp","type":"mcp_tool_call","server":"jq_mcp_server","tool":"jq_query","arguments":{"filter":"."},"result":{"content":[],"structured_content":{"ok":true,"values":[3],"exitCode":0}},"error":null,"status":"completed"}}',
+    '{"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"{\"status\":\"completed\",\"answer\":3,\"explanation\":\"done\"}"}}',
+    '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}'
+  ].join('\n'));
+
+  const parsed = await parseTrace(path);
+  assert.equal(parsed.mcpCalls.length, 1);
+  assert.equal(parsed.mcpCalls[0]?.status, 'completed');
+  assert.equal('error' in parsed.mcpCalls[0]!, false);
+});
+
 test('records each command once and selects the last valid agent answer', async () => {
   const trace = await parseTrace(join(fixtures, 'shell.jsonl'));
 

@@ -139,8 +139,8 @@ function processItem(
       ...(typeof value.server === 'string' ? { server: value.server } : {}),
       tool: value.tool,
       arguments: value.arguments,
-      ...('result' in value ? { result: value.result } : {}),
-      ...('error' in value ? { error: value.error } : {}),
+      ...('result' in value && value.result !== null ? { result: value.result } : {}),
+      ...('error' in value && value.error !== null ? { error: value.error } : {}),
       ...(typeof value.status === 'string' ? { status: value.status } : {})
     };
     const id = typeof value.id === 'string' ? value.id : undefined;
