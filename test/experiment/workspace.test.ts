@@ -68,12 +68,11 @@ test('prepares distinct 0700 workspaces with only the task fixtures and an isola
 
   assert.notEqual(first.path, second.path);
   assert.equal((await stat(first.path)).mode & 0o777, 0o700);
-  assert.deepEqual((await readdir(first.path)).sort(), ['fixtures', 'final-answer.schema.json'].sort());
-  assert.deepEqual((await readdir(join(first.path, 'fixtures'))).sort(), ['users.json']);
-  assert.equal(await readFile(join(first.path, 'fixtures/users.json'), 'utf8'), await readFile(join(experimentRoot, 'tasks/fixtures/users.json'), 'utf8'));
+  assert.deepEqual((await readdir(first.path)).sort(), ['users.json', 'final-answer.schema.json'].sort());
+  assert.equal(await readFile(join(first.path, 'users.json'), 'utf8'), await readFile(join(experimentRoot, 'tasks/fixtures/users.json'), 'utf8'));
   assert.equal(await readFile(first.outputSchemaPath, 'utf8'), await readFile(join(experimentRoot, 'schemas/final-answer.schema.json'), 'utf8'));
   assert.equal(first.outputSchemaPath, join(first.path, 'final-answer.schema.json'));
-  await assert.rejects(readFile(join(first.path, 'fixtures/orders.json')));
+  await assert.rejects(readFile(join(first.path, 'orders.json')));
 });
 
 test('refuses to replace an existing final workspace', async t => {

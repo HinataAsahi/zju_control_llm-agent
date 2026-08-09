@@ -53,7 +53,7 @@ async function prepareReservedWorkspace(
     for (const inputFile of options.task.inputFiles) {
       validateFixturePath(inputFile);
       const sourcePath = resolve(experimentRoot, 'tasks', inputFile);
-      const destinationPath = join(temporaryPath, ...inputFile.split('/'));
+      const destinationPath = join(temporaryPath, ...inputFile.slice(fixturePrefix.length).split('/'));
       await copyRegularFile(experimentRoot, sourcePath, destinationPath);
     }
 

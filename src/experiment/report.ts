@@ -1,4 +1,5 @@
 import type { ModelConfiguration, RawCodexRun } from './codex-runner.js';
+import { jqQueryInputSchema } from '../mcp/jq-schema.js';
 import type { ExperimentCondition, ExperimentTask } from './schema.js';
 import type { TokenUsage, TraceSummary, ToolObservation } from './trace-parser.js';
 
@@ -57,7 +58,9 @@ export function evaluateRun(input: EvaluateRunInput): EvaluatedRun {
       ? (input.task.id === 'T8' ? jqCalls.length === 0 : successfulCall)
       : null,
     mcpSelected: valid && selectionApplicable ? jqCalls.length > 0 : null,
-    firstCallValid: valid && firstCallApplicable ? callSucceeded(firstCall) : null,
+    firstCallValid: valid && firstCallApplicable
+      ? jqQueryInputSchema.safeParse(firstCall?.arguments).success
+      : null,
     recoverySuccess: valid && input.task.id === 'T7'
       ? jqCalls.length >= 2 && callFailed(jqCalls[0]) && jqCalls.slice(1).some(callSucceeded)
       : null,

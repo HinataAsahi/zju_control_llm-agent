@@ -96,13 +96,13 @@ test('scores T6 only for cannot_complete with a null answer', () => {
 test('scores T7 recovery and T8 negative avoidance from jq calls', () => {
   const failed = {
     tool: 'jq_query',
-    arguments: { filter: 'if' },
+    arguments: { filter: 'if', source: { type: 'file', path: 'users.json' } },
     error: { code: 'JQ_SYNTAX_ERROR' },
     status: 'failed'
   };
   const succeeded = {
     tool: 'jq_query',
-    arguments: { filter: 'length' },
+    arguments: { filter: 'length', source: { type: 'file', path: 'users.json' } },
     result: { ok: true, values: [3] },
     status: 'completed'
   };
@@ -121,7 +121,7 @@ test('scores T7 recovery and T8 negative avoidance from jq calls', () => {
   });
 
   assert.equal(t7.explicitCompliance, true);
-  assert.equal(t7.firstCallValid, false);
+  assert.equal(t7.firstCallValid, true);
   assert.equal(t7.recoverySuccess, true);
   assert.equal(t8.explicitCompliance, true);
   assert.equal(t8.negativeAvoidance, true);
