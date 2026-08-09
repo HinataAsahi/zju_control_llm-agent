@@ -4,7 +4,34 @@
   "additionalProperties": false,
   "properties": {
     "status": { "enum": ["completed", "cannot_complete"] },
-    "answer": {},
+    "answer": {
+      "anyOf": [
+        { "type": "integer" },
+        {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "east": { "type": "integer" },
+            "west": { "type": "integer" }
+          },
+          "required": ["east", "west"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "stockValue": { "type": "number" }
+          },
+          "required": ["name", "stockValue"]
+        },
+        { "type": "null" }
+      ]
+    },
     "explanation": { "type": "string" }
   },
   "required": ["status", "answer", "explanation"]

@@ -68,6 +68,26 @@ test('provides a valid generic jq-query skill without experiment task IDs', asyn
   assert.doesNotMatch(skill, /\bT[1-8]\b/);
 });
 
+test('uses explicit structured-output types for every supported answer shape', async () => {
+  const schema = JSON.parse(
+    await readFile(resolve('experiments/stage-2a/schemas/final-answer.schema.json'), 'utf8')
+  ) as {
+    properties: {
+      answer: {
+        anyOf: Array<{ type: string; additionalProperties?: boolean; required?: string[] }>;
+      };
+    };
+  };
+
+  assert.deepEqual(schema.properties.answer.anyOf.map(branch => branch.type), [
+    'integer', 'array', 'object', 'object', 'null'
+  ]);
+  for (const branch of schema.properties.answer.anyOf.filter(branch => branch.type === 'object')) {
+    assert.equal(branch.additionalProperties, false);
+    assert.ok((branch.required?.length ?? 0) > 0);
+  }
+});
+
 test('rejects task fixture paths that are not normalized relative paths below tasks/fixtures', async (t) => {
   const root = await setupExperiment(t);
   await writeTask(root, 'T1.json', { ...validTask, inputFiles: ['fixtures/../users.json'] });
