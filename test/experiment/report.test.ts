@@ -128,6 +128,23 @@ test('scores T7 recovery and T8 negative avoidance from jq calls', () => {
   assert.equal(t8.mcpSelected, null);
 });
 
+test('does not count cancelled-only MCP attempts as explicit compliance', () => {
+  const result = evaluate('explicit', {
+    trace: trace({
+      mcpCalls: [{
+        tool: 'jq_query',
+        arguments: {},
+        result: null,
+        error: { message: 'user cancelled MCP tool call' },
+        status: 'failed'
+      }]
+    })
+  });
+
+  assert.equal(result.explicitCompliance, false);
+  assert.equal(result.firstCallValid, false);
+});
+
 test('keeps model mistakes valid but separates infrastructure and review failures', () => {
   const wrong = evaluate('description', {
     trace: trace({ finalAnswer: { status: 'completed', answer: 999, explanation: 'wrong' } })

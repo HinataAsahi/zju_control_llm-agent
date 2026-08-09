@@ -397,6 +397,7 @@ function mcpOverrides(serverEntrypoint: string, workspacePath: string, effort: s
     `model_reasoning_effort = ${toml(effort)}`,
     `mcp_servers.jq_mcp_server.command = ${toml('node')}`,
     `mcp_servers.jq_mcp_server.args = [${[serverEntrypoint, '--root', workspacePath].map(toml).join(', ')}]`,
+    `mcp_servers.jq_mcp_server.default_tools_approval_mode = ${toml('approve')}`,
     'mcp_servers.jq_mcp_server.required = true'
   ];
 }

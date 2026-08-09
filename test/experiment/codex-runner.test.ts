@@ -170,6 +170,7 @@ test('integration: passes exact argv, supported auth environment, and prompt whi
     'model_reasoning_effort = "medium"',
     'mcp_servers.jq_mcp_server.command = "node"',
     `mcp_servers.jq_mcp_server.args = [${JSON.stringify(resolve(request.serverEntrypoint))}, "--root", ${JSON.stringify(resolve(request.workspace.path))}]`,
+    'mcp_servers.jq_mcp_server.default_tools_approval_mode = "approve"',
     'mcp_servers.jq_mcp_server.required = true'
   ]);
   assert.equal(isAbsolute(JSON.parse(overrides[2]!.slice(overrides[2]!.indexOf('[')))[0]), true);

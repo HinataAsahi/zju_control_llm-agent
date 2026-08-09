@@ -39,6 +39,7 @@ export function evaluateRun(input: EvaluateRunInput): EvaluatedRun {
   const valid = validity === 'valid';
   const jqCalls = input.trace.mcpCalls.filter(call => call.tool === 'jq_query');
   const firstCall = jqCalls[0];
+  const successfulCall = jqCalls.some(callSucceeded);
   const taskNumber = Number(input.task.id.slice(1));
   const selectionApplicable = (input.condition === 'description' || input.condition === 'skill')
     && taskNumber >= 1
@@ -53,7 +54,7 @@ export function evaluateRun(input: EvaluateRunInput): EvaluatedRun {
     validity,
     taskSuccess: valid ? answersEqual(input.trace.finalAnswer, input.task.expected) : null,
     explicitCompliance: valid && explicitApplicable
-      ? (input.task.id === 'T8' ? jqCalls.length === 0 : jqCalls.length > 0)
+      ? (input.task.id === 'T8' ? jqCalls.length === 0 : successfulCall)
       : null,
     mcpSelected: valid && selectionApplicable ? jqCalls.length > 0 : null,
     firstCallValid: valid && firstCallApplicable ? callSucceeded(firstCall) : null,

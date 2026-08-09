@@ -629,6 +629,7 @@ function buildArguments(request: CodexRunRequest, workspacePath: string, schemaP
     `model_reasoning_effort = ${tomlString(request.model.reasoningEffort)}`,
     `mcp_servers.jq_mcp_server.command = ${tomlString('node')}`,
     `mcp_servers.jq_mcp_server.args = [${[serverEntrypoint, '--root', workspacePath].map(tomlString).join(', ')}]`,
+    `mcp_servers.jq_mcp_server.default_tools_approval_mode = ${tomlString('approve')}`,
     'mcp_servers.jq_mcp_server.required = true'
   ];
   return [
