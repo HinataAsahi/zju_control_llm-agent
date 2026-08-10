@@ -255,7 +255,11 @@ test('classifies API, MCP, and invalid final output without exposing raw errors'
     const result = await runAgent({
       client: {
         async createTurn() {
-          throw { status: 429, request_id: 'req_safe123', message: 'secret prompt payload' };
+          throw {
+            status: 429,
+            request_id: 'req_safe123',
+            error: { code: 'rate_limit', param: 'model', message: 'secret prompt payload' }
+          };
         }
       },
       tools: gateway,
@@ -269,7 +273,9 @@ test('classifies API, MCP, and invalid final output without exposing raw errors'
       category: 'api',
       code: 'MODEL_REQUEST_FAILED',
       httpStatus: 429,
-      requestId: 'req_safe123'
+      requestId: 'req_safe123',
+      providerCode: 'rate_limit',
+      providerParam: 'model'
     });
     assert.doesNotMatch(JSON.stringify(result.error), /secret/);
     assert.equal(gateway.closes, 1);

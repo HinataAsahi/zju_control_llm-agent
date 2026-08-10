@@ -9,6 +9,7 @@ import {
 import type { ModelTurnRequest } from '../../src/agent/model-client.js';
 
 const outputSchema = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
   type: 'object',
   properties: { status: { type: 'string' } },
   required: ['status'],
@@ -62,16 +63,19 @@ test('configures the official SDK without retry or provider-side state', async (
     format: {
       type: 'json_schema',
       name: 'experiment_answer',
-      schema: outputSchema,
-      strict: true
+      schema: {
+        type: 'object',
+        properties: { status: { type: 'string' } },
+        required: ['status'],
+        additionalProperties: false
+      }
     }
   });
   assert.deepEqual(capturedBody?.tools, [{
     type: 'function',
     name: 'jq_query',
     description: 'Run jq.',
-    parameters: { type: 'object', properties: { filter: { type: 'string' } } },
-    strict: false
+    parameters: { type: 'object', properties: { filter: { type: 'string' } } }
   }]);
   assert.deepEqual(capturedBody?.input, [
     { role: 'user', content: 'Count users.' },

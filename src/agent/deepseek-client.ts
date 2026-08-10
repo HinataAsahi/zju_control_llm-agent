@@ -68,28 +68,32 @@ function createResponsesApi(apiKey: string): ResponsesApi {
 }
 
 function createRequest(request: ModelTurnRequest): ResponseCreateParamsNonStreaming {
+  const tools = request.tools.map(tool => ({
+    type: 'function' as const,
+    name: tool.name,
+    ...(tool.description ? { description: tool.description } : {}),
+    parameters: tool.parameters
+  })) as NonNullable<ResponseCreateParamsNonStreaming['tools']>;
   return {
     model: DEEPSEEK_MODEL,
     instructions: request.instructions,
     input: request.history.map(toResponseInput),
-    tools: request.tools.map(tool => ({
-      type: 'function' as const,
-      name: tool.name,
-      ...(tool.description ? { description: tool.description } : {}),
-      parameters: tool.parameters,
-      strict: false
-    })),
+    tools,
     text: {
       format: {
         type: 'json_schema',
         name: 'experiment_answer',
-        schema: request.outputSchema,
-        strict: true
+        schema: withoutSchemaDialect(request.outputSchema)
       }
     },
     store: false,
     reasoning: { effort: 'none' }
   };
+}
+
+function withoutSchemaDialect(schema: Record<string, unknown>): Record<string, unknown> {
+  const { $schema: _schemaDialect, ...supportedSchema } = schema;
+  return supportedSchema;
 }
 
 function toResponseInput(item: ModelHistoryItem): ResponseInputItem {

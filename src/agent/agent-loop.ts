@@ -33,6 +33,8 @@ export interface AgentRunError {
   code: string;
   httpStatus?: number;
   requestId?: string;
+  providerCode?: string;
+  providerParam?: string;
 }
 
 export interface AgentRunResult<T> {
@@ -243,7 +245,7 @@ function failure<T>(
   state: RunState,
   category: AgentRunError['category'],
   code: string,
-  metadata?: Pick<AgentRunError, 'httpStatus' | 'requestId'>
+  metadata?: Pick<AgentRunError, 'httpStatus' | 'requestId' | 'providerCode' | 'providerParam'>
 ): AgentRunResult<T> {
   return {
     ...snapshot(status, state),
@@ -275,7 +277,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function providerMetadata(
   error: unknown
-): Pick<AgentRunError, 'httpStatus' | 'requestId'> | undefined {
+): Pick<AgentRunError, 'httpStatus' | 'requestId' | 'providerCode' | 'providerParam'> | undefined {
   if (!isRecord(error)) return undefined;
   const httpStatus = Number.isSafeInteger(error.status)
     && (error.status as number) >= 100
@@ -292,9 +294,28 @@ function providerMetadata(
     && /^[A-Za-z0-9._:-]+$/.test(rawRequestId)
     ? rawRequestId
     : undefined;
-  if (httpStatus === undefined && requestId === undefined) return undefined;
+  const providerError = isRecord(error.error) ? error.error : undefined;
+  const providerCode = safeProviderField(providerError?.code);
+  const providerParam = safeProviderField(providerError?.param);
+  if (
+    httpStatus === undefined
+    && requestId === undefined
+    && providerCode === undefined
+    && providerParam === undefined
+  ) return undefined;
   return {
     ...(httpStatus !== undefined ? { httpStatus } : {}),
-    ...(requestId !== undefined ? { requestId } : {})
+    ...(requestId !== undefined ? { requestId } : {}),
+    ...(providerCode !== undefined ? { providerCode } : {}),
+    ...(providerParam !== undefined ? { providerParam } : {})
   };
+}
+
+function safeProviderField(value: unknown): string | undefined {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 128
+    && /^[A-Za-z0-9._:-]+$/.test(value)
+    ? value
+    : undefined;
 }
