@@ -1,6 +1,10 @@
 import type { ModelConfiguration, RawCodexRun } from './codex-runner.js';
 import { jqQueryInputSchema } from '../mcp/jq-schema.js';
-import type { ExperimentCondition, ExperimentTask } from './schema.js';
+import {
+  answerMatchesExpected,
+  type ExperimentCondition,
+  type ExperimentTask
+} from './schema.js';
 import type { TokenUsage, TraceSummary, ToolObservation } from './trace-parser.js';
 
 export type RunValidity = 'valid' | 'infrastructure-error' | 'needs-review';
@@ -53,7 +57,10 @@ export function evaluateRun(input: EvaluateRunInput): EvaluatedRun {
     taskId: input.task.id,
     condition: input.condition,
     validity,
-    taskSuccess: valid ? answersEqual(input.trace.finalAnswer, input.task.expected) : null,
+    taskSuccess: valid
+      ? input.trace.finalAnswer !== undefined
+        && answerMatchesExpected(input.trace.finalAnswer, input.task.expected)
+      : null,
     explicitCompliance: valid && explicitApplicable
       ? (input.task.id === 'T8' ? jqCalls.length === 0 : successfulCall)
       : null,
@@ -187,23 +194,6 @@ function validityNotes(raw: RawCodexRun, trace: TraceSummary): string[] {
   }
   if (!trace.finalAnswer) notes.push('No valid final answer was observed.');
   return notes;
-}
-
-function answersEqual(
-  answer: TraceSummary['finalAnswer'],
-  expected: ExperimentTask['expected']
-): boolean {
-  return answer !== undefined
-    && answer.status === expected.status
-    && canonicalJson(answer.answer) === canonicalJson(expected.answer);
-}
-
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (isRecord(value)) {
-    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function callSucceeded(call: ToolObservation | undefined): boolean {

@@ -1,7 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { jsonValueSchema } from '../mcp/jq-schema.js';
-import type { ExperimentAnswer } from './schema.js';
+import { parseExperimentAnswer, type ExperimentAnswer } from './schema.js';
 
 export interface TokenUsage {
   inputTokens: number;
@@ -175,11 +174,9 @@ function processItem(
     const text = value.text.trim();
     if (!text.startsWith('{')) return;
     try {
-      const answer = parseAnswer(JSON.parse(text));
-      if (answer) acceptAnswer(answer);
-      else parseErrors.push(`Structured agent answer on line ${lineNumber} is invalid.`);
+      acceptAnswer(parseExperimentAnswer(JSON.parse(text)));
     } catch {
-      parseErrors.push(`Structured agent answer on line ${lineNumber} is not valid JSON.`);
+      parseErrors.push(`Structured agent answer on line ${lineNumber} is invalid.`);
     }
     return;
   }
@@ -187,16 +184,6 @@ function processItem(
   if (['reasoning', 'file_change', 'web_search', 'plan_update'].includes(value.type)) return;
 
   unknown(`item:${value.type}`);
-}
-
-function parseAnswer(value: unknown): ExperimentAnswer | undefined {
-  if (!isRecord(value)) return undefined;
-  if (Object.keys(value).some(key => !['status', 'answer', 'explanation'].includes(key))) return undefined;
-  if (value.status !== 'completed' && value.status !== 'cannot_complete') return undefined;
-  if (typeof value.explanation !== 'string') return undefined;
-  const answer = jsonValueSchema.safeParse(value.answer);
-  if (!answer.success) return undefined;
-  return { status: value.status, answer: answer.data, explanation: value.explanation };
 }
 
 function addUsage(
