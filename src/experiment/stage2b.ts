@@ -19,6 +19,7 @@ import {
 import type { ModelTurnClient, ToolGateway } from '../agent/model-client.js';
 import {
   answerMatchesExpected,
+  diagnoseExperimentAnswer,
   parseExperimentAnswer
 } from './schema.js';
 import {
@@ -88,6 +89,7 @@ export async function runStage2bSmoke(options: {
     input: workspace.prompt,
     outputSchema: outputSchemaValue,
     parseFinalAnswer: text => parseExperimentAnswer(JSON.parse(text)),
+    diagnoseInvalidFinalAnswer: diagnoseExperimentAnswer,
     limits: { ...STAGE2B_LIMITS }
   });
   const finishedAt = dependencies.now();

@@ -28,6 +28,48 @@ export function parseExperimentAnswer(value: unknown): ExperimentAnswer {
   return experimentAnswerSchema.parse(value);
 }
 
+export function diagnoseExperimentAnswer(text: string): Record<string, unknown> {
+  const trimmed = text.trim();
+  const diagnostics: Record<string, unknown> = {
+    textLength: text.length,
+    trimmedLength: trimmed.length,
+    hasMarkdownFence: /```/.test(trimmed),
+    jsonParseSucceeded: false
+  };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return diagnostics;
+  }
+
+  diagnostics.jsonParseSucceeded = true;
+  diagnostics.topLevelType = jsonType(parsed);
+  if (isRecord(parsed)) {
+    const expectedFields = ['status', 'answer', 'explanation'] as const;
+    diagnostics.fields = Object.fromEntries(expectedFields.map(field => [field, {
+      present: Object.hasOwn(parsed, field),
+      type: Object.hasOwn(parsed, field) ? jsonType(parsed[field]) : 'missing'
+    }]));
+    diagnostics.unknownFieldCount = Object.keys(parsed)
+      .filter(key => !expectedFields.includes(key as typeof expectedFields[number]))
+      .length;
+  }
+
+  const validation = experimentAnswerSchema.safeParse(parsed);
+  if (!validation.success) {
+    diagnostics.validationIssues = validation.error.issues.map(issue => ({
+      code: issue.code,
+      path: issue.path.length === 0
+        ? '<root>'
+        : issue.path.map(part => typeof part === 'string' && ['status', 'answer', 'explanation'].includes(part)
+          ? part
+          : '<other>').join('.')
+    }));
+  }
+  return diagnostics;
+}
+
 export function answerMatchesExpected(
   answer: ExperimentAnswer,
   expected: ExperimentTask['expected']
@@ -56,4 +98,14 @@ function canonicalJson(value: JsonValue): string {
       .join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+function jsonType(value: unknown): string {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

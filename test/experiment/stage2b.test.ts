@@ -17,6 +17,8 @@ import {
 class T1FakeModel implements ModelTurnClient {
   readonly requests: ModelTurnRequest[] = [];
 
+  constructor(private readonly finalText = '{"status":"completed","answer":3,"explanation":"Three values are greater than five."}') {}
+
   async createTurn(request: ModelTurnRequest): Promise<ModelTurnResult> {
     this.requests.push(request);
     if (this.requests.length === 1) {
@@ -41,11 +43,10 @@ class T1FakeModel implements ModelTurnClient {
         usage: usage(20, 4)
       };
     }
-    const finalText = '{"status":"completed","answer":3,"explanation":"Three values are greater than five."}';
     return {
-      historyItems: [{ type: 'message', role: 'assistant', content: finalText }],
+      historyItems: [{ type: 'message', role: 'assistant', content: this.finalText }],
       functionCalls: [],
-      finalText,
+      finalText: this.finalText,
       usage: usage(30, 6)
     };
   }
@@ -108,6 +109,46 @@ test('accepts only the explicit smoke command', () => {
   assert.throws(() => parseStage2bArgs([]), /smoke/);
   assert.throws(() => parseStage2bArgs(['smoke', '--extra']), /smoke/);
   assert.throws(() => parseStage2bArgs(['formal']), /smoke/);
+});
+
+test('records safe structural diagnostics for an invalid final answer', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+  const invalidText = '{"status":"completed","answer":"private-value","explanation":42,"extra":"private-extra"}';
+  const model = new T1FakeModel(invalidText);
+
+  const record = await runStage2bSmoke({
+    repositoryRoot,
+    apiKey: 'offline-test-key',
+    dependencies: {
+      createModelClient: () => model,
+      connectTools: options => McpToolBridge.connect({
+        ...options,
+        serverEntrypoint: resolve('dist/src/mcp/server.js')
+      })
+    }
+  });
+
+  assert.equal(record.status, 'model-output-error');
+  assert.deepEqual(record.error?.diagnostics, {
+    textLength: invalidText.length,
+    trimmedLength: invalidText.length,
+    hasMarkdownFence: false,
+    jsonParseSucceeded: true,
+    topLevelType: 'object',
+    fields: {
+      status: { present: true, type: 'string' },
+      answer: { present: true, type: 'string' },
+      explanation: { present: true, type: 'number' }
+    },
+    unknownFieldCount: 1,
+    validationIssues: [
+      { code: 'invalid_type', path: 'explanation' },
+      { code: 'unrecognized_keys', path: '<root>' }
+    ]
+  });
+  assert.doesNotMatch(JSON.stringify(record.error?.diagnostics), /private-value|private-extra/);
 });
 
 function usage(inputTokens: number, outputTokens: number) {

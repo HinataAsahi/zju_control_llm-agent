@@ -35,6 +35,7 @@ export interface AgentRunError {
   requestId?: string;
   providerCode?: string;
   providerParam?: string;
+  diagnostics?: Record<string, unknown>;
 }
 
 export interface AgentRunResult<T> {
@@ -54,6 +55,7 @@ export interface RunAgentOptions<T> {
   input: string;
   outputSchema: Record<string, unknown>;
   parseFinalAnswer(text: string): T;
+  diagnoseInvalidFinalAnswer?(text: string): Record<string, unknown>;
   limits?: AgentLimits;
 }
 
@@ -205,7 +207,11 @@ async function runCore<T>(
         finalAnswer: options.parseFinalAnswer(turn.finalText)
       };
     } catch {
-      return failure('model-output-error', state, 'model', 'INVALID_FINAL_ANSWER');
+      return failure('model-output-error', state, 'model', 'INVALID_FINAL_ANSWER', {
+        ...(options.diagnoseInvalidFinalAnswer
+          ? { diagnostics: options.diagnoseInvalidFinalAnswer(turn.finalText) }
+          : {})
+      });
     }
   }
 
@@ -245,7 +251,7 @@ function failure<T>(
   state: RunState,
   category: AgentRunError['category'],
   code: string,
-  metadata?: Pick<AgentRunError, 'httpStatus' | 'requestId' | 'providerCode' | 'providerParam'>
+  metadata?: Omit<AgentRunError, 'category' | 'code'>
 ): AgentRunResult<T> {
   return {
     ...snapshot(status, state),
@@ -277,7 +283,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function providerMetadata(
   error: unknown
-): Pick<AgentRunError, 'httpStatus' | 'requestId' | 'providerCode' | 'providerParam'> | undefined {
+): Omit<AgentRunError, 'category' | 'code'> | undefined {
   if (!isRecord(error)) return undefined;
   const httpStatus = Number.isSafeInteger(error.status)
     && (error.status as number) >= 100
