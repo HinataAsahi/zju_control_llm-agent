@@ -153,6 +153,52 @@ test('dispatches a function call and replays its output before completion', asyn
   assert.equal(gateway.closes, 1);
 });
 
+test('prioritizes function calls and discards text from a mixed model turn', async () => {
+  const prematureText = '{"status":"completed","answer":99,"explanation":"Premature."}';
+  const finalText = '{"status":"completed","answer":3,"explanation":"Counted after the tool result."}';
+  const call = {
+    callId: 'call-mixed',
+    name: 'jq_query',
+    arguments: '{"filter":"length"}'
+  };
+  const client = fakeClient([
+    {
+      historyItems: [
+        { type: 'function_call', ...call },
+        { type: 'message', role: 'assistant', content: prematureText }
+      ],
+      functionCalls: [call],
+      finalText: prematureText,
+      usage: usage(10, 4)
+    },
+    {
+      historyItems: [{ type: 'message', role: 'assistant', content: finalText }],
+      functionCalls: [],
+      finalText,
+      usage: usage(12, 3)
+    }
+  ]);
+  const gateway = fakeGateway(['{"ok":true,"values":[3],"exitCode":0}']);
+
+  const result = await runAgent({
+    client,
+    tools: gateway,
+    instructions: 'Use jq_query.',
+    input: 'Count users.',
+    outputSchema: finalSchema,
+    parseFinalAnswer: textValue => parseExperimentAnswer(JSON.parse(textValue))
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.finalAnswer?.answer, 3);
+  assert.equal(result.turns, 2);
+  assert.equal(result.toolCalls, 1);
+  assert.equal(result.history.some(item => item.type === 'message'
+    && item.role === 'assistant'
+    && item.content === prematureText), false);
+  assert.equal(gateway.calls.length, 1);
+});
+
 test('returns malformed arguments to the model without invoking the tool', async () => {
   const finalText = '{"status":"cannot_complete","answer":null,"explanation":"Invalid request."}';
   const client = fakeClient([

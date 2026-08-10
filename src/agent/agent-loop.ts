@@ -158,12 +158,9 @@ async function runCore<T>(
     }
 
     addUsage(state.usage, turn.usage);
-    state.history.push(...turn.historyItems);
 
     if (turn.functionCalls.length > 0) {
-      if (turn.finalText !== undefined) {
-        return failure('protocol-error', state, 'model', 'MIXED_MODEL_OUTPUT');
-      }
+      state.history.push(...turn.historyItems.filter(item => item.type !== 'message'));
       for (const call of turn.functionCalls) {
         if (!toolNames.has(call.name)) {
           state.history.push(toolError(call.callId, 'TOOL_NOT_FOUND'));
@@ -198,6 +195,7 @@ async function runCore<T>(
       continue;
     }
 
+    state.history.push(...turn.historyItems);
     if (turn.finalText === undefined) {
       return failure('protocol-error', state, 'model', 'MISSING_FINAL_TEXT');
     }
