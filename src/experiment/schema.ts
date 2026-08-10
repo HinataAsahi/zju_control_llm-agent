@@ -40,6 +40,7 @@ export function diagnoseExperimentAnswer(text: string): Record<string, unknown> 
     trimmedLength: trimmed.length,
     hasMarkdownFence: /```/.test(trimmed),
     ...(document.markdownFenceUnwrapped ? { markdownFenceUnwrapped: true } : {}),
+    ...(document.surroundingTextPresent ? { surroundingTextPresent: true } : {}),
     jsonParseSucceeded: false
   };
   let parsed: unknown;
@@ -112,12 +113,28 @@ function jsonType(value: unknown): string {
   return typeof value;
 }
 
-function jsonDocument(text: string): { text: string; markdownFenceUnwrapped: boolean } {
+function jsonDocument(text: string): {
+  text: string;
+  markdownFenceUnwrapped: boolean;
+  surroundingTextPresent: boolean;
+} {
   const trimmed = text.trim();
-  const fenced = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i.exec(trimmed);
-  return fenced
-    ? { text: fenced[1]!, markdownFenceUnwrapped: true }
-    : { text: trimmed, markdownFenceUnwrapped: false };
+  const fenceCount = trimmed.match(/```/g)?.length ?? 0;
+  const fenced = fenceCount === 2
+    ? /```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```/i.exec(trimmed)
+    : null;
+  if (!fenced) {
+    return {
+      text: trimmed,
+      markdownFenceUnwrapped: false,
+      surroundingTextPresent: false
+    };
+  }
+  return {
+    text: fenced[1]!,
+    markdownFenceUnwrapped: true,
+    surroundingTextPresent: fenced[0].length !== trimmed.length
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

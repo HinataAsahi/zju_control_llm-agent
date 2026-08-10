@@ -41,12 +41,13 @@ test('rejects unknown fields and non-JSON answer values', () => {
   }));
 });
 
-test('parses bare or singly fenced JSON without extracting from prose', () => {
+test('parses bare JSON or exactly one JSON fence and rejects ambiguous fences', () => {
   const json = '{"status":"completed","answer":3,"explanation":"done"}';
 
   assert.equal(parseExperimentAnswerText(json).answer, 3);
   assert.equal(parseExperimentAnswerText(`\n\`\`\`json\n${json}\n\`\`\`\n`).answer, 3);
-  assert.throws(() => parseExperimentAnswerText(`Result:\n\`\`\`json\n${json}\n\`\`\``));
+  assert.equal(parseExperimentAnswerText(`Result:\n\`\`\`json\n${json}\n\`\`\`\nDone.`).answer, 3);
+  assert.throws(() => parseExperimentAnswerText(`\`\`\`json\n${json}\n\`\`\`\n\`\`\`json\n${json}\n\`\`\``));
   assert.throws(() => parseExperimentAnswerText(`\`\`\`javascript\n${json}\n\`\`\``));
 });
 
