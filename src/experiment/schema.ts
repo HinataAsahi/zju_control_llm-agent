@@ -29,7 +29,8 @@ export function parseExperimentAnswer(value: unknown): ExperimentAnswer {
 }
 
 export function parseExperimentAnswerText(text: string): ExperimentAnswer {
-  return parseExperimentAnswer(JSON.parse(jsonDocument(text).text));
+  const parsed: unknown = JSON.parse(jsonDocument(text).text);
+  return parseExperimentAnswer(projectAnswerFields(parsed));
 }
 
 export function diagnoseExperimentAnswer(text: string): Record<string, unknown> {
@@ -111,6 +112,15 @@ function jsonType(value: unknown): string {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'array';
   return typeof value;
+}
+
+function projectAnswerFields(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  return {
+    status: value.status,
+    answer: value.answer,
+    explanation: value.explanation
+  };
 }
 
 function jsonDocument(text: string): {

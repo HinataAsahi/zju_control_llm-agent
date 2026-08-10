@@ -51,6 +51,22 @@ test('parses bare JSON or exactly one JSON fence and rejects ambiguous fences', 
   assert.throws(() => parseExperimentAnswerText(`\`\`\`javascript\n${json}\n\`\`\``));
 });
 
+test('text parsing ignores provider-added top-level fields without weakening object parsing', () => {
+  const value = {
+    status: 'completed',
+    answer: 3,
+    explanation: 'done',
+    providerNote: 'ignored'
+  };
+
+  assert.throws(() => parseExperimentAnswer(value));
+  assert.deepEqual(parseExperimentAnswerText(JSON.stringify(value)), {
+    status: 'completed',
+    answer: 3,
+    explanation: 'done'
+  });
+});
+
 test('compares expected JSON canonically while preserving array order', () => {
   const answer = {
     status: 'completed' as const,
