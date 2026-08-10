@@ -10,6 +10,7 @@
     "test:mcp": "npm run build && node --test dist/test/mcp/*.test.js",
     "experiment": "npm run build && node dist/src/experiment/stage2a.js",
     "experiment:report": "npm run build && node dist/src/experiment/stage2a.js report",
+    "experiment:stage2b": "npm run build && node dist/src/experiment/stage2b.js",
     "start": "node dist/src/mcp/server.js"
   },
   "dependencies": {
