@@ -136,16 +136,18 @@ async function runCore<T>(
         outputSchema: options.outputSchema,
         signal: AbortSignal.any([totalSignal, requestController.signal])
       });
-    } catch {
+    } catch (error) {
+      const code = totalSignal.aborted
+        ? 'TOTAL_TIMEOUT'
+        : requestController.signal.aborted
+          ? 'REQUEST_TIMEOUT'
+          : 'MODEL_REQUEST_FAILED';
       return failure(
         'infrastructure-error',
         state,
         'api',
-        totalSignal.aborted
-          ? 'TOTAL_TIMEOUT'
-          : requestController.signal.aborted
-            ? 'REQUEST_TIMEOUT'
-            : 'MODEL_REQUEST_FAILED'
+        code,
+        code === 'MODEL_REQUEST_FAILED' ? providerMetadata(error) : undefined
       );
     } finally {
       clearTimeout(requestTimer);
@@ -240,11 +242,12 @@ function failure<T>(
   status: Exclude<AgentRunStatus, 'completed'>,
   state: RunState,
   category: AgentRunError['category'],
-  code: string
+  code: string,
+  metadata?: Pick<AgentRunError, 'httpStatus' | 'requestId'>
 ): AgentRunResult<T> {
   return {
     ...snapshot(status, state),
-    error: { category, code }
+    error: { category, code, ...metadata }
   };
 }
 
@@ -268,4 +271,30 @@ function addUsage(total: ModelUsage, addition: ModelUsage): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function providerMetadata(
+  error: unknown
+): Pick<AgentRunError, 'httpStatus' | 'requestId'> | undefined {
+  if (!isRecord(error)) return undefined;
+  const httpStatus = Number.isSafeInteger(error.status)
+    && (error.status as number) >= 100
+    && (error.status as number) <= 599
+    ? error.status as number
+    : undefined;
+  const rawRequestId = typeof error.request_id === 'string'
+    ? error.request_id
+    : typeof error.requestID === 'string'
+      ? error.requestID
+      : undefined;
+  const requestId = rawRequestId
+    && rawRequestId.length <= 128
+    && /^[A-Za-z0-9._:-]+$/.test(rawRequestId)
+    ? rawRequestId
+    : undefined;
+  if (httpStatus === undefined && requestId === undefined) return undefined;
+  return {
+    ...(httpStatus !== undefined ? { httpStatus } : {}),
+    ...(requestId !== undefined ? { requestId } : {})
+  };
 }

@@ -253,7 +253,11 @@ test('classifies API, MCP, and invalid final output without exposing raw errors'
   await t.test('API', async () => {
     const gateway = fakeGateway();
     const result = await runAgent({
-      client: { async createTurn() { throw new Error('secret prompt payload'); } },
+      client: {
+        async createTurn() {
+          throw { status: 429, request_id: 'req_safe123', message: 'secret prompt payload' };
+        }
+      },
       tools: gateway,
       instructions: 'secret instruction',
       input: 'secret input',
@@ -261,7 +265,12 @@ test('classifies API, MCP, and invalid final output without exposing raw errors'
       parseFinalAnswer: textValue => parseExperimentAnswer(JSON.parse(textValue))
     });
     assert.equal(result.status, 'infrastructure-error');
-    assert.deepEqual(result.error, { category: 'api', code: 'MODEL_REQUEST_FAILED' });
+    assert.deepEqual(result.error, {
+      category: 'api',
+      code: 'MODEL_REQUEST_FAILED',
+      httpStatus: 429,
+      requestId: 'req_safe123'
+    });
     assert.doesNotMatch(JSON.stringify(result.error), /secret/);
     assert.equal(gateway.closes, 1);
   });
