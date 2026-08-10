@@ -20,7 +20,7 @@ import type { ModelTurnClient, ToolGateway } from '../agent/model-client.js';
 import {
   answerMatchesExpected,
   diagnoseExperimentAnswer,
-  parseExperimentAnswer
+  parseExperimentAnswerText
 } from './schema.js';
 import {
   writeStage2bRecord,
@@ -88,7 +88,7 @@ export async function runStage2bSmoke(options: {
     instructions: 'Complete the task using the discovered MCP tools when applicable.',
     input: workspace.prompt,
     outputSchema: outputSchemaValue,
-    parseFinalAnswer: text => parseExperimentAnswer(JSON.parse(text)),
+    parseFinalAnswer: parseExperimentAnswerText,
     diagnoseInvalidFinalAnswer: diagnoseExperimentAnswer,
     limits: { ...STAGE2B_LIMITS }
   });

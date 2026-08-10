@@ -111,11 +111,39 @@ test('accepts only the explicit smoke command', () => {
   assert.throws(() => parseStage2bArgs(['formal']), /smoke/);
 });
 
+test('accepts a final answer wrapped in one JSON markdown fence', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+  const model = new T1FakeModel([
+    '```json',
+    '{"status":"completed","answer":3,"explanation":"Counted with jq."}',
+    '```'
+  ].join('\n'));
+
+  const record = await runStage2bSmoke({
+    repositoryRoot,
+    apiKey: 'offline-test-key',
+    dependencies: {
+      createModelClient: () => model,
+      connectTools: options => McpToolBridge.connect({
+        ...options,
+        serverEntrypoint: resolve('dist/src/mcp/server.js')
+      })
+    }
+  });
+
+  assert.equal(record.status, 'completed');
+  assert.equal(record.taskSuccess, true);
+  assert.equal(record.finalAnswer?.answer, 3);
+});
+
 test('records safe structural diagnostics for an invalid final answer', async t => {
   const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
   await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
-  const invalidText = '{"status":"completed","answer":"private-value","explanation":42,"extra":"private-extra"}';
+  const invalidPayload = '{"status":"completed","answer":"private-value","explanation":42,"extra":"private-extra"}';
+  const invalidText = `\`\`\`json\n${invalidPayload}\n\`\`\``;
   const model = new T1FakeModel(invalidText);
 
   const record = await runStage2bSmoke({
@@ -134,7 +162,8 @@ test('records safe structural diagnostics for an invalid final answer', async t 
   assert.deepEqual(record.error?.diagnostics, {
     textLength: invalidText.length,
     trimmedLength: invalidText.length,
-    hasMarkdownFence: false,
+    hasMarkdownFence: true,
+    markdownFenceUnwrapped: true,
     jsonParseSucceeded: true,
     topLevelType: 'object',
     fields: {

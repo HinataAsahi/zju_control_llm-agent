@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   answerMatchesExpected,
-  parseExperimentAnswer
+  parseExperimentAnswer,
+  parseExperimentAnswerText
 } from '../../src/experiment/schema.js';
 
 test('parses strict completed and cannot-complete answers', () => {
@@ -38,6 +39,15 @@ test('rejects unknown fields and non-JSON answer values', () => {
     answer: undefined,
     explanation: 'done'
   }));
+});
+
+test('parses bare or singly fenced JSON without extracting from prose', () => {
+  const json = '{"status":"completed","answer":3,"explanation":"done"}';
+
+  assert.equal(parseExperimentAnswerText(json).answer, 3);
+  assert.equal(parseExperimentAnswerText(`\n\`\`\`json\n${json}\n\`\`\`\n`).answer, 3);
+  assert.throws(() => parseExperimentAnswerText(`Result:\n\`\`\`json\n${json}\n\`\`\``));
+  assert.throws(() => parseExperimentAnswerText(`\`\`\`javascript\n${json}\n\`\`\``));
 });
 
 test('compares expected JSON canonically while preserving array order', () => {

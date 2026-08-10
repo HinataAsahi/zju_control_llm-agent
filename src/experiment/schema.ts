@@ -28,17 +28,23 @@ export function parseExperimentAnswer(value: unknown): ExperimentAnswer {
   return experimentAnswerSchema.parse(value);
 }
 
+export function parseExperimentAnswerText(text: string): ExperimentAnswer {
+  return parseExperimentAnswer(JSON.parse(jsonDocument(text).text));
+}
+
 export function diagnoseExperimentAnswer(text: string): Record<string, unknown> {
   const trimmed = text.trim();
+  const document = jsonDocument(trimmed);
   const diagnostics: Record<string, unknown> = {
     textLength: text.length,
     trimmedLength: trimmed.length,
     hasMarkdownFence: /```/.test(trimmed),
+    ...(document.markdownFenceUnwrapped ? { markdownFenceUnwrapped: true } : {}),
     jsonParseSucceeded: false
   };
   let parsed: unknown;
   try {
-    parsed = JSON.parse(trimmed);
+    parsed = JSON.parse(document.text);
   } catch {
     return diagnostics;
   }
@@ -104,6 +110,14 @@ function jsonType(value: unknown): string {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'array';
   return typeof value;
+}
+
+function jsonDocument(text: string): { text: string; markdownFenceUnwrapped: boolean } {
+  const trimmed = text.trim();
+  const fenced = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i.exec(trimmed);
+  return fenced
+    ? { text: fenced[1]!, markdownFenceUnwrapped: true }
+    : { text: trimmed, markdownFenceUnwrapped: false };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
