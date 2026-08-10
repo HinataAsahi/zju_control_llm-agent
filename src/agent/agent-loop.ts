@@ -1,5 +1,6 @@
 import {
   emptyModelUsage,
+  type FunctionTool,
   type ModelHistoryItem,
   type ModelTurnClient,
   type ModelUsage,
@@ -27,6 +28,13 @@ export type AgentRunStatus =
   | 'model-output-error'
   | 'limit-exceeded';
 
+export interface AgentRunError {
+  category: 'api' | 'mcp' | 'model' | 'limit' | 'configuration';
+  code: string;
+  httpStatus?: number;
+  requestId?: string;
+}
+
 export interface AgentRunResult<T> {
   status: AgentRunStatus;
   turns: number;
@@ -34,7 +42,7 @@ export interface AgentRunResult<T> {
   history: ModelHistoryItem[];
   usage: ModelUsage;
   finalAnswer?: T;
-  error?: { category: string; code: string };
+  error?: AgentRunError;
 }
 
 export interface RunAgentOptions<T> {
@@ -47,95 +55,206 @@ export interface RunAgentOptions<T> {
   limits?: AgentLimits;
 }
 
+interface RunState {
+  turns: number;
+  toolCalls: number;
+  history: ModelHistoryItem[];
+  usage: ModelUsage;
+}
+
 export async function runAgent<T>(options: RunAgentOptions<T>): Promise<AgentRunResult<T>> {
   const limits = options.limits ?? STAGE2B_LIMITS;
-  const history: ModelHistoryItem[] = [{
-    type: 'message',
-    role: 'user',
-    content: options.input
-  }];
-  const usage = emptyModelUsage();
-  const signal = new AbortController().signal;
-  let turns = 0;
-  let toolCalls = 0;
+  const state: RunState = {
+    turns: 0,
+    toolCalls: 0,
+    history: [{ type: 'message', role: 'user', content: options.input }],
+    usage: emptyModelUsage()
+  };
+  const totalController = new AbortController();
+  const totalTimer = setTimeout(
+    () => totalController.abort(new Error('Agent total timeout.')),
+    Math.max(1, limits.totalTimeoutMs)
+  );
+  totalTimer.unref();
+  let runResult: AgentRunResult<T>;
 
   try {
-    const availableTools = await options.tools.listTools(signal);
-    for (; turns < limits.maxTurns; turns += 1) {
-      const turn = await options.client.createTurn({
+    if (!validLimits(limits)) {
+      runResult = failure('protocol-error', state, 'configuration', 'INVALID_LIMITS');
+    } else {
+      runResult = await runCore(options, limits, state, totalController.signal);
+    }
+  } catch {
+    runResult = failure('infrastructure-error', state, 'mcp', 'UNEXPECTED_RUNNER_FAILURE');
+  } finally {
+    clearTimeout(totalTimer);
+  }
+
+  try {
+    await options.tools.close();
+  } catch {
+    if (runResult.status === 'completed') {
+      return failure('infrastructure-error', state, 'mcp', 'TOOL_CLOSE_FAILED');
+    }
+  }
+  return runResult;
+}
+
+async function runCore<T>(
+  options: RunAgentOptions<T>,
+  limits: AgentLimits,
+  state: RunState,
+  totalSignal: AbortSignal
+): Promise<AgentRunResult<T>> {
+  let availableTools: FunctionTool[];
+  try {
+    availableTools = await options.tools.listTools(totalSignal);
+  } catch {
+    return failure(
+      'infrastructure-error',
+      state,
+      'mcp',
+      totalSignal.aborted ? 'TOTAL_TIMEOUT' : 'TOOL_DISCOVERY_FAILED'
+    );
+  }
+  const toolNames = new Set(availableTools.map(tool => tool.name));
+
+  while (state.turns < limits.maxTurns) {
+    state.turns += 1;
+    const requestController = new AbortController();
+    const requestTimer = setTimeout(
+      () => requestController.abort(new Error('Model request timeout.')),
+      limits.requestTimeoutMs
+    );
+    requestTimer.unref();
+    let turn;
+    try {
+      turn = await options.client.createTurn({
         instructions: options.instructions,
-        history,
+        history: state.history,
         tools: availableTools,
         outputSchema: options.outputSchema,
-        signal
+        signal: AbortSignal.any([totalSignal, requestController.signal])
       });
-      addUsage(usage, turn.usage);
-      history.push(...turn.historyItems);
-
-      if (turn.functionCalls.length > 0) {
-        for (const call of turn.functionCalls) {
-          if (toolCalls >= limits.maxToolCalls) {
-            return result('limit-exceeded', turns + 1, toolCalls, history, usage, {
-              category: 'limit',
-              code: 'MAX_TOOL_CALLS'
-            });
-          }
-          const args = JSON.parse(call.arguments) as Record<string, unknown>;
-          const output = await options.tools.callTool(call.name, args, signal);
-          toolCalls += 1;
-          history.push({
-            type: 'function_call_output',
-            callId: call.callId,
-            output
-          });
-        }
-        continue;
-      }
-
-      if (turn.finalText === undefined) {
-        return result('protocol-error', turns + 1, toolCalls, history, usage, {
-          category: 'model',
-          code: 'MISSING_FINAL_TEXT'
-        });
-      }
-      try {
-        const finalAnswer = options.parseFinalAnswer(turn.finalText);
-        return {
-          ...result('completed', turns + 1, toolCalls, history, usage),
-          finalAnswer
-        };
-      } catch {
-        return result('model-output-error', turns + 1, toolCalls, history, usage, {
-          category: 'model',
-          code: 'INVALID_FINAL_ANSWER'
-        });
-      }
+    } catch {
+      return failure(
+        'infrastructure-error',
+        state,
+        'api',
+        totalSignal.aborted
+          ? 'TOTAL_TIMEOUT'
+          : requestController.signal.aborted
+            ? 'REQUEST_TIMEOUT'
+            : 'MODEL_REQUEST_FAILED'
+      );
+    } finally {
+      clearTimeout(requestTimer);
     }
 
-    return result('limit-exceeded', turns, toolCalls, history, usage, {
-      category: 'limit',
-      code: 'MAX_TURNS'
-    });
-  } finally {
-    await options.tools.close();
+    addUsage(state.usage, turn.usage);
+    state.history.push(...turn.historyItems);
+
+    if (turn.functionCalls.length > 0) {
+      if (turn.finalText !== undefined) {
+        return failure('protocol-error', state, 'model', 'MIXED_MODEL_OUTPUT');
+      }
+      for (const call of turn.functionCalls) {
+        if (!toolNames.has(call.name)) {
+          state.history.push(toolError(call.callId, 'TOOL_NOT_FOUND'));
+          continue;
+        }
+        const args = parseArguments(call.arguments);
+        if (!args) {
+          state.history.push(toolError(call.callId, 'INVALID_TOOL_ARGUMENTS'));
+          continue;
+        }
+        if (state.toolCalls >= limits.maxToolCalls) {
+          return failure('limit-exceeded', state, 'limit', 'MAX_TOOL_CALLS');
+        }
+        let output: string;
+        try {
+          output = await options.tools.callTool(call.name, args, totalSignal);
+        } catch {
+          return failure(
+            'infrastructure-error',
+            state,
+            'mcp',
+            totalSignal.aborted ? 'TOTAL_TIMEOUT' : 'TOOL_CALL_FAILED'
+          );
+        }
+        state.toolCalls += 1;
+        state.history.push({
+          type: 'function_call_output',
+          callId: call.callId,
+          output
+        });
+      }
+      continue;
+    }
+
+    if (turn.finalText === undefined) {
+      return failure('protocol-error', state, 'model', 'MISSING_FINAL_TEXT');
+    }
+    try {
+      return {
+        ...snapshot('completed', state),
+        finalAnswer: options.parseFinalAnswer(turn.finalText)
+      };
+    } catch {
+      return failure('model-output-error', state, 'model', 'INVALID_FINAL_ANSWER');
+    }
+  }
+
+  return failure('limit-exceeded', state, 'limit', 'MAX_TURNS');
+}
+
+function validLimits(limits: AgentLimits): boolean {
+  return Number.isSafeInteger(limits.maxTurns)
+    && limits.maxTurns > 0
+    && Number.isSafeInteger(limits.maxToolCalls)
+    && limits.maxToolCalls > 0
+    && Number.isSafeInteger(limits.requestTimeoutMs)
+    && limits.requestTimeoutMs > 0
+    && Number.isSafeInteger(limits.totalTimeoutMs)
+    && limits.totalTimeoutMs > 0;
+}
+
+function parseArguments(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
   }
 }
 
-function result<T>(
-  status: AgentRunStatus,
-  turns: number,
-  toolCalls: number,
-  history: ModelHistoryItem[],
-  usage: ModelUsage,
-  error?: { category: string; code: string }
+function toolError(callId: string, code: string): ModelHistoryItem {
+  return {
+    type: 'function_call_output',
+    callId,
+    output: JSON.stringify({ ok: false, error: { code } })
+  };
+}
+
+function failure<T>(
+  status: Exclude<AgentRunStatus, 'completed'>,
+  state: RunState,
+  category: AgentRunError['category'],
+  code: string
 ): AgentRunResult<T> {
   return {
+    ...snapshot(status, state),
+    error: { category, code }
+  };
+}
+
+function snapshot<T>(status: AgentRunStatus, state: RunState): AgentRunResult<T> {
+  return {
     status,
-    turns,
-    toolCalls,
-    history: [...history],
-    usage: { ...usage },
-    ...(error ? { error } : {})
+    turns: state.turns,
+    toolCalls: state.toolCalls,
+    history: [...state.history],
+    usage: { ...state.usage }
   };
 }
 
@@ -145,4 +264,8 @@ function addUsage(total: ModelUsage, addition: ModelUsage): void {
   total.outputTokens += addition.outputTokens;
   total.reasoningOutputTokens += addition.reasoningOutputTokens;
   total.totalTokens += addition.totalTokens;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

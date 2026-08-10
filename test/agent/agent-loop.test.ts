@@ -152,3 +152,178 @@ test('dispatches a function call and replays its output before completion', asyn
   });
   assert.equal(gateway.closes, 1);
 });
+
+test('returns malformed arguments to the model without invoking the tool', async () => {
+  const finalText = '{"status":"cannot_complete","answer":null,"explanation":"Invalid request."}';
+  const client = fakeClient([
+    {
+      historyItems: [{
+        type: 'function_call', callId: 'bad', name: 'jq_query', arguments: '{bad json'
+      }],
+      functionCalls: [{ callId: 'bad', name: 'jq_query', arguments: '{bad json' }],
+      usage: usage(1, 1)
+    },
+    {
+      historyItems: [{ type: 'message', role: 'assistant', content: finalText }],
+      functionCalls: [],
+      finalText,
+      usage: usage(1, 1)
+    }
+  ]);
+  const gateway = fakeGateway();
+
+  const result = await runAgent({
+    client,
+    tools: gateway,
+    instructions: 'Use tools.',
+    input: 'Count.',
+    outputSchema: finalSchema,
+    parseFinalAnswer: textValue => parseExperimentAnswer(JSON.parse(textValue))
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.toolCalls, 0);
+  assert.equal(gateway.calls.length, 0);
+  assert.match(JSON.stringify(result.history), /INVALID_TOOL_ARGUMENTS/);
+});
+
+test('returns an unknown tool error to the model', async () => {
+  const finalText = '{"status":"completed","answer":3,"explanation":"Recovered."}';
+  const client = fakeClient([
+    {
+      historyItems: [{
+        type: 'function_call', callId: 'unknown', name: 'filesystem', arguments: '{}'
+      }],
+      functionCalls: [{ callId: 'unknown', name: 'filesystem', arguments: '{}' }],
+      usage: usage(1, 1)
+    },
+    {
+      historyItems: [{ type: 'message', role: 'assistant', content: finalText }],
+      functionCalls: [],
+      finalText,
+      usage: usage(1, 1)
+    }
+  ]);
+  const gateway = fakeGateway();
+
+  const result = await runAgent({
+    client,
+    tools: gateway,
+    instructions: 'Use tools.',
+    input: 'Count.',
+    outputSchema: finalSchema,
+    parseFinalAnswer: textValue => parseExperimentAnswer(JSON.parse(textValue))
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.match(JSON.stringify(result.history), /TOOL_NOT_FOUND/);
+  assert.equal(gateway.calls.length, 0);
+});
+
+test('does not execute a fifth tool call', async () => {
+  const calls = Array.from({ length: 5 }, (_, index) => ({
+    callId: `call-${index}`,
+    name: 'jq_query',
+    arguments: '{}'
+  }));
+  const client = fakeClient([{
+    historyItems: calls.map(call => ({ type: 'function_call' as const, ...call })),
+    functionCalls: calls,
+    usage: usage(1, 1)
+  }]);
+  const gateway = fakeGateway(['{}', '{}', '{}', '{}', '{}']);
+
+  const result = await runAgent({
+    client,
+    tools: gateway,
+    instructions: 'Use tools.',
+    input: 'Count.',
+    outputSchema: finalSchema,
+    parseFinalAnswer: textValue => parseExperimentAnswer(JSON.parse(textValue))
+  });
+
+  assert.equal(result.status, 'limit-exceeded');
+  assert.equal(result.error?.code, 'MAX_TOOL_CALLS');
+  assert.equal(result.toolCalls, 4);
+  assert.equal(gateway.calls.length, 4);
+  assert.equal(gateway.closes, 1);
+});
+
+test('classifies API, MCP, and invalid final output without exposing raw errors', async t => {
+  await t.test('API', async () => {
+    const gateway = fakeGateway();
+    const result = await runAgent({
+      client: { async createTurn() { throw new Error('secret prompt payload'); } },
+      tools: gateway,
+      instructions: 'secret instruction',
+      input: 'secret input',
+      outputSchema: finalSchema,
+      parseFinalAnswer: textValue => parseExperimentAnswer(JSON.parse(textValue))
+    });
+    assert.equal(result.status, 'infrastructure-error');
+    assert.deepEqual(result.error, { category: 'api', code: 'MODEL_REQUEST_FAILED' });
+    assert.doesNotMatch(JSON.stringify(result.error), /secret/);
+    assert.equal(gateway.closes, 1);
+  });
+
+  await t.test('MCP', async () => {
+    const gateway = fakeGateway();
+    gateway.listTools = async () => { throw new Error('private path'); };
+    const result = await runAgent({
+      client: fakeClient([]),
+      tools: gateway,
+      instructions: 'Use tools.',
+      input: 'Count.',
+      outputSchema: finalSchema,
+      parseFinalAnswer: textValue => parseExperimentAnswer(JSON.parse(textValue))
+    });
+    assert.equal(result.status, 'infrastructure-error');
+    assert.deepEqual(result.error, { category: 'mcp', code: 'TOOL_DISCOVERY_FAILED' });
+    assert.equal(gateway.closes, 1);
+  });
+
+  await t.test('final output', async () => {
+    const gateway = fakeGateway();
+    const result = await runAgent({
+      client: fakeClient([{
+        historyItems: [{ type: 'message', role: 'assistant', content: 'not json' }],
+        functionCalls: [],
+        finalText: 'not json',
+        usage: usage(1, 1)
+      }]),
+      tools: gateway,
+      instructions: 'Use tools.',
+      input: 'Count.',
+      outputSchema: finalSchema,
+      parseFinalAnswer: textValue => parseExperimentAnswer(JSON.parse(textValue))
+    });
+    assert.equal(result.status, 'model-output-error');
+    assert.equal(result.error?.code, 'INVALID_FINAL_ANSWER');
+    assert.equal(gateway.closes, 1);
+  });
+});
+
+test('aborts a model request at its per-request timeout', async () => {
+  const gateway = fakeGateway();
+  const client: ModelTurnClient = {
+    async createTurn(request) {
+      return await new Promise<ModelTurnResult>((_resolve, reject) => {
+        request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true });
+      });
+    }
+  };
+
+  const result = await runAgent({
+    client,
+    tools: gateway,
+    instructions: 'Use tools.',
+    input: 'Count.',
+    outputSchema: finalSchema,
+    parseFinalAnswer: textValue => parseExperimentAnswer(JSON.parse(textValue)),
+    limits: { maxTurns: 4, maxToolCalls: 4, requestTimeoutMs: 10, totalTimeoutMs: 100 }
+  });
+
+  assert.equal(result.status, 'infrastructure-error');
+  assert.deepEqual(result.error, { category: 'api', code: 'REQUEST_TIMEOUT' });
+  assert.equal(gateway.closes, 1);
+});
