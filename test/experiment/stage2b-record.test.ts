@@ -16,6 +16,7 @@ function record(runId = 'stage2b-T1-explicit-test'): Stage2bRecord {
     provider: 'deepseek',
     model: 'deepseek-v4-flash',
     thinking: 'none',
+    sampling: { temperature: 0 },
     taskId: 'T1',
     condition: 'explicit',
     status: 'completed',

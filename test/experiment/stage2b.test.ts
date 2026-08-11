@@ -20,6 +20,10 @@ import {
   writeStage2bRecord,
   type Stage2bRecord
 } from '../../src/experiment/stage2b-record.js';
+import {
+  claimNextStage2bBatchRun,
+  readStage2bBatchManifest
+} from '../../src/experiment/stage2b-batch.js';
 
 class T1FakeModel implements ModelTurnClient {
   readonly requests: ModelTurnRequest[] = [];
@@ -386,6 +390,7 @@ test('renders the T2 and T7 condition matrix without credentials or side effects
     repetitions: number;
     totalRuns: number;
     requiresApiKey: boolean;
+    sampling: { temperature: number | null };
     upperBounds: { modelRequests: number; toolCalls: number };
     runs: Array<{ taskId: string; condition: string; repetition: number }>;
   };
@@ -397,6 +402,7 @@ test('renders the T2 and T7 condition matrix without credentials or side effects
     repetitions: plan.repetitions,
     totalRuns: plan.totalRuns,
     requiresApiKey: plan.requiresApiKey,
+    sampling: plan.sampling,
     upperBounds: plan.upperBounds
   }, {
     version: 1,
@@ -406,6 +412,7 @@ test('renders the T2 and T7 condition matrix without credentials or side effects
     repetitions: 2,
     totalRuns: 12,
     requiresApiKey: false,
+    sampling: { temperature: 0 },
     upperBounds: { modelRequests: 60, toolCalls: 48 }
   });
   assert.deepEqual(plan.runs.slice(0, 4), [
@@ -459,6 +466,7 @@ test('prepares a private pending batch manifest without credentials or tool conn
     provider: string;
     model: string;
     thinking: string;
+    sampling: { temperature: number | null };
     repetitions: number;
     totalRuns: number;
     limits: Record<string, number>;
@@ -477,6 +485,7 @@ test('prepares a private pending batch manifest without credentials or tool conn
     provider: manifest.provider,
     model: manifest.model,
     thinking: manifest.thinking,
+    sampling: manifest.sampling,
     repetitions: manifest.repetitions,
     totalRuns: manifest.totalRuns,
     limits: manifest.limits
@@ -487,6 +496,7 @@ test('prepares a private pending batch manifest without credentials or tool conn
     provider: 'deepseek',
     model: 'deepseek-v4-flash',
     thinking: 'none',
+    sampling: { temperature: 0 },
     repetitions: 2,
     totalRuns: 12,
     limits: {
@@ -532,6 +542,69 @@ test('refuses to prepare a batch through a symlinked batches directory', async t
     dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
   }), /unsafe.*batch/i);
   assert.deepEqual(await readdir(outside), []);
+});
+
+test('normalizes a legacy batch without sampling metadata to provider defaults', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-legacy-batch-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  let prepareOutput = '';
+  await main(['prepare'], {
+    repositoryRoot,
+    writeOutput: text => { prepareOutput += text; },
+    dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
+  });
+  const { batchId, manifestPath } = JSON.parse(prepareOutput) as {
+    batchId: string;
+    manifestPath: string;
+  };
+  const legacy = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+  delete legacy.sampling;
+  await writeFile(manifestPath, `${JSON.stringify(legacy, null, 2)}\n`, 'utf8');
+
+  const loaded = await readStage2bBatchManifest(repositoryRoot, batchId) as unknown as {
+    manifest: { sampling: { temperature: number | null } };
+  };
+
+  assert.deepEqual(loaded.manifest.sampling, { temperature: null });
+});
+
+test('serializes concurrent claims for the same Stage 2B batch', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-claim-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  let prepareOutput = '';
+  await main(['prepare'], {
+    repositoryRoot,
+    writeOutput: text => { prepareOutput += text; },
+    dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
+  });
+  const { batchId, manifestPath } = JSON.parse(prepareOutput) as {
+    batchId: string;
+    manifestPath: string;
+  };
+
+  const results = await Promise.allSettled([
+    claimNextStage2bBatchRun({
+      repositoryRoot,
+      batchId,
+      claimedAt: new Date('2026-08-11T08:01:00.000Z')
+    }),
+    claimNextStage2bBatchRun({
+      repositoryRoot,
+      batchId,
+      claimedAt: new Date('2026-08-11T08:01:00.001Z')
+    })
+  ]);
+
+  const fulfilled = results.filter(result => result.status === 'fulfilled');
+  const rejected = results.filter(result => result.status === 'rejected');
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.match(String(rejected[0]?.reason), /batch.*(?:busy|running)/i);
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    runs: Array<{ status: string }>;
+  };
+  assert.equal(manifest.runs.filter(run => run.status === 'running').length, 1);
+  assert.deepEqual(await readdir(join(manifestPath, '..')), ['manifest.json']);
 });
 
 test('run-next records one model-behavior failure as a completed observation', async t => {
@@ -599,6 +672,10 @@ test('run-next records one model-behavior failure as a completed observation', a
   assert.equal(summary.remainingPending, 5);
   assert.match(summary.recordRunId, /^stage2b-T2-explicit-/);
   assert.equal((await lstat(summary.recordPath)).mode & 0o777, 0o600);
+  const record = JSON.parse(await readFile(summary.recordPath, 'utf8')) as {
+    sampling?: { temperature: number | null };
+  };
+  assert.deepEqual(record.sampling, { temperature: 0 });
   assert.equal(modelRequests, 1);
   assert.deepEqual(observedClaim, {
     runKey: 'T2-explicit-r1',
@@ -1072,6 +1149,7 @@ function completedBatchRecord(runId: string): Stage2bRecord {
     provider: 'deepseek',
     model: 'deepseek-v4-flash',
     thinking: 'none',
+    sampling: { temperature: 0 },
     taskId: 'T2',
     condition: 'explicit',
     status: 'completed',

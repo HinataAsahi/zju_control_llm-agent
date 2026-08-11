@@ -9,6 +9,7 @@ import {
 import {
   createDeepSeekModelClient,
   DEEPSEEK_MODEL,
+  DEEPSEEK_TEMPERATURE,
   requireDeepSeekApiKey
 } from '../agent/deepseek-client.js';
 import {
@@ -47,7 +48,7 @@ import { loadTasks } from './task-loader.js';
 import { prepareWorkspace, type PreparedWorkspace } from './workspace.js';
 
 export interface Stage2bDependencies {
-  createModelClient(apiKey: string): ModelTurnClient;
+  createModelClient(apiKey: string, temperature: number | null): ModelTurnClient;
   connectTools(options: McpToolBridgeOptions): Promise<ToolGateway>;
   now(): Date;
 }
@@ -85,7 +86,7 @@ const STAGE2B_INSTRUCTIONS = [
 ].join('\n');
 
 const defaultDependencies: Stage2bDependencies = {
-  createModelClient: apiKey => createDeepSeekModelClient({ apiKey }),
+  createModelClient: (apiKey, temperature) => createDeepSeekModelClient({ apiKey, temperature }),
   connectTools: options => McpToolBridge.connect(options),
   now: () => new Date()
 };
@@ -144,6 +145,7 @@ export async function runStage2bSmoke(options: {
   taskId?: Stage2bTaskId;
   condition?: ExperimentCondition;
   runId?: string;
+  temperature?: number | null;
   apiKey?: string;
   dependencies?: Partial<Stage2bDependencies>;
 }): Promise<Stage2bRecord> {
@@ -154,6 +156,9 @@ export async function runStage2bSmoke(options: {
   const experimentRoot = resolve(repositoryRoot, 'experiments/stage-2a');
   const runRoot = resolve(repositoryRoot, '.experiment-runs/stage-2b');
   const serverEntrypoint = resolve(repositoryRoot, 'dist/src/mcp/server.js');
+  const temperature = options.temperature === undefined
+    ? DEEPSEEK_TEMPERATURE
+    : options.temperature;
   const startedAt = dependencies.now();
   const runId = options.runId ?? createStage2bRunId(taskId, condition, startedAt);
   if (!isStage2bRunId(runId)) throw new Error('Invalid Stage 2B run ID.');
@@ -183,7 +188,7 @@ export async function runStage2bSmoke(options: {
       task,
       workspace,
       outputSchema: outputSchemaValue,
-      client: dependencies.createModelClient(apiKey),
+      client: dependencies.createModelClient(apiKey, temperature),
       instructions
     };
   } catch {
@@ -191,6 +196,7 @@ export async function runStage2bSmoke(options: {
       runId,
       taskId,
       condition,
+      temperature,
       startedAt,
       finishedAt: dependencies.now(),
       category: 'configuration',
@@ -209,6 +215,7 @@ export async function runStage2bSmoke(options: {
       runId,
       taskId,
       condition,
+      temperature,
       startedAt,
       finishedAt: dependencies.now(),
       category: 'mcp',
@@ -235,6 +242,7 @@ export async function runStage2bSmoke(options: {
     provider: 'deepseek',
     model: DEEPSEEK_MODEL,
     thinking: 'none',
+    sampling: { temperature },
     taskId,
     condition,
     status: result.status,
@@ -257,6 +265,7 @@ function infrastructureRecord(options: {
   runId: string;
   taskId: Stage2bTaskId;
   condition: ExperimentCondition;
+  temperature: number | null;
   startedAt: Date;
   finishedAt: Date;
   category: 'configuration' | 'mcp';
@@ -269,6 +278,7 @@ function infrastructureRecord(options: {
     provider: 'deepseek',
     model: DEEPSEEK_MODEL,
     thinking: 'none',
+    sampling: { temperature: options.temperature },
     taskId: options.taskId,
     condition: options.condition,
     status: 'infrastructure-error',
@@ -366,6 +376,7 @@ export async function main(
       taskId: selected.taskId,
       condition: selected.condition,
       runId: selected.recordRunId,
+      temperature: claimed.manifest.sampling.temperature,
       ...(apiKey !== undefined ? { apiKey } : {}),
       ...(options.dependencies ? { dependencies: options.dependencies } : {})
     });

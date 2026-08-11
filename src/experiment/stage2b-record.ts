@@ -36,6 +36,9 @@ export interface Stage2bRecord {
   provider: 'deepseek';
   model: 'deepseek-v4-flash';
   thinking: 'none';
+  sampling: {
+    temperature: number | null;
+  };
   taskId: Stage2bTaskId;
   condition: ExperimentCondition;
   status: AgentRunStatus;

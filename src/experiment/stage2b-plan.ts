@@ -1,4 +1,5 @@
 import { STAGE2B_LIMITS } from '../agent/agent-loop.js';
+import { DEEPSEEK_TEMPERATURE } from '../agent/deepseek-client.js';
 import type { ExperimentCondition } from './schema.js';
 
 export const STAGE2B_PLAN_MAX_REPETITIONS = 100;
@@ -23,6 +24,9 @@ export interface Stage2bPlan {
   repetitions: number;
   totalRuns: number;
   requiresApiKey: false;
+  sampling: {
+    temperature: number;
+  };
   upperBounds: {
     modelRequests: number;
     toolCalls: number;
@@ -49,6 +53,7 @@ export function createStage2bPlan(repetitions = 1): Stage2bPlan {
     repetitions,
     totalRuns: runs.length,
     requiresApiKey: false,
+    sampling: { temperature: DEEPSEEK_TEMPERATURE },
     upperBounds: {
       modelRequests: runs.length * STAGE2B_LIMITS.maxTurns,
       toolCalls: runs.length * STAGE2B_LIMITS.maxToolCalls

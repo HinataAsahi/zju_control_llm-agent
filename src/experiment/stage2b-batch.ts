@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, rename, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import * as z from 'zod/v4';
 import { STAGE2B_LIMITS } from '../agent/agent-loop.js';
-import { DEEPSEEK_MODEL } from '../agent/deepseek-client.js';
+import { DEEPSEEK_MODEL, DEEPSEEK_TEMPERATURE } from '../agent/deepseek-client.js';
 import {
   createStage2bRunId,
   isStage2bRunId,
@@ -57,6 +57,9 @@ const stage2bBatchManifestSchema = z.strictObject({
   provider: z.literal('deepseek'),
   model: z.literal(DEEPSEEK_MODEL),
   thinking: z.literal('none'),
+  sampling: z.strictObject({
+    temperature: z.number().min(0).max(2).nullable()
+  }).default({ temperature: null }),
   repetitions: z.number().int().min(1).max(STAGE2B_PLAN_MAX_REPETITIONS),
   totalRuns: z.number().int().min(1),
   limits: z.strictObject({
@@ -111,6 +114,7 @@ export async function prepareStage2bBatch(options: {
     provider: 'deepseek',
     model: DEEPSEEK_MODEL,
     thinking: 'none',
+    sampling: { temperature: DEEPSEEK_TEMPERATURE },
     repetitions: plan.repetitions,
     totalRuns: plan.totalRuns,
     limits: { ...STAGE2B_LIMITS },
@@ -155,22 +159,49 @@ export async function claimNextStage2bBatchRun(options: {
   manifestPath: string;
   run?: Extract<Stage2bBatchRun, { status: 'running' }>;
 }> {
-  const loaded = await readStage2bBatchManifest(options.repositoryRoot, options.batchId);
-  if (loaded.manifest.runs.some(run => run.status === 'running')) {
-    throw new Error('Stage 2B batch already has a running item.');
-  }
-  const selected = nextPendingStage2bBatchRun(loaded.manifest);
-  if (!selected) return loaded;
+  return withStage2bBatchLock(options.repositoryRoot, options.batchId, async () => {
+    const loaded = await readStage2bBatchManifest(options.repositoryRoot, options.batchId);
+    if (loaded.manifest.runs.some(run => run.status === 'running')) {
+      throw new Error('Stage 2B batch already has a running item.');
+    }
+    const selected = nextPendingStage2bBatchRun(loaded.manifest);
+    if (!selected) return loaded;
 
-  const running: Extract<Stage2bBatchRun, { status: 'running' }> = {
-    ...selected,
-    status: 'running',
-    recordRunId: createStage2bRunId(selected.taskId, selected.condition, options.claimedAt)
-  };
-  const runs = loaded.manifest.runs.map(run => run.runKey === selected.runKey ? running : run);
-  const manifest = stage2bBatchManifestSchema.parse({ ...loaded.manifest, runs });
-  await replaceStage2bBatchManifest(loaded.manifestPath, manifest);
-  return { manifest, manifestPath: loaded.manifestPath, run: running };
+    const running: Extract<Stage2bBatchRun, { status: 'running' }> = {
+      ...selected,
+      status: 'running',
+      recordRunId: createStage2bRunId(selected.taskId, selected.condition, options.claimedAt)
+    };
+    const runs = loaded.manifest.runs.map(run => run.runKey === selected.runKey ? running : run);
+    const manifest = stage2bBatchManifestSchema.parse({ ...loaded.manifest, runs });
+    await replaceStage2bBatchManifest(loaded.manifestPath, manifest);
+    return { manifest, manifestPath: loaded.manifestPath, run: running };
+  });
+}
+
+async function withStage2bBatchLock<T>(
+  repositoryRoot: string,
+  batchId: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const manifestPath = await existingManifestPath(repositoryRoot, batchId);
+  const lockPath = join(dirname(manifestPath), '.manifest.lock');
+  try {
+    await mkdir(lockPath, { mode: 0o700 });
+  } catch (error) {
+    if (isErrno(error, 'EEXIST')) throw new Error('Stage 2B batch is busy.');
+    throw error;
+  }
+  try {
+    const metadata = await lstat(lockPath);
+    if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+      throw new Error('Unsafe Stage 2B batch lock.');
+    }
+    await chmod(lockPath, 0o700);
+    return await operation();
+  } finally {
+    await rmdir(lockPath);
+  }
 }
 
 export async function reconcileStage2bBatch(

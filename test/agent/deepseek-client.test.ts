@@ -55,6 +55,7 @@ test('configures the official SDK without retry or provider-side state', async (
   await client.createTurn(request(signal));
 
   assert.equal(capturedBody?.model, 'deepseek-v4-flash');
+  assert.equal(capturedBody?.temperature, 0);
   assert.equal(capturedBody?.store, false);
   assert.deepEqual(capturedBody?.reasoning, { effort: 'none' });
   assert.equal(capturedBody?.instructions, 'Use jq when applicable.');
@@ -85,6 +86,30 @@ test('configures the official SDK without retry or provider-side state', async (
     maxRetries: 0,
     timeout: 60_000
   });
+});
+
+test('omits temperature when replaying a provider-default legacy batch', async () => {
+  let capturedBody: Record<string, unknown> | undefined;
+  const responses: ResponsesApi = {
+    async create(body) {
+      capturedBody = body as unknown as Record<string, unknown>;
+      return responseWithMessage('{"status":"completed"}');
+    }
+  };
+  const options = { apiKey: 'test-key', responses, temperature: null };
+
+  await createDeepSeekModelClient(options).createTurn(request());
+
+  assert.equal(Object.hasOwn(capturedBody ?? {}, 'temperature'), false);
+});
+
+test('rejects invalid sampling temperatures before creating a turn', () => {
+  for (const temperature of [-0.01, 2.01, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(
+      () => createDeepSeekModelClient({ apiKey: 'test-key', temperature }),
+      /temperature/i
+    );
+  }
 });
 
 test('maps function calls, final text, and token details', async () => {

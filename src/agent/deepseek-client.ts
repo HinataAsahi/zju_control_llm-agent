@@ -14,6 +14,7 @@ import type {
 
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 export const DEEPSEEK_MODEL = 'deepseek-v4-flash';
+export const DEEPSEEK_TEMPERATURE = 0;
 
 export interface ResponsesApi {
   create(
@@ -47,13 +48,23 @@ export function deepSeekSdkOptions(apiKey: string): DeepSeekSdkOptions {
 export function createDeepSeekModelClient(options: {
   apiKey: string;
   responses?: ResponsesApi;
+  temperature?: number | null;
 }): ModelTurnClient {
   const apiKey = options.apiKey.trim();
   if (!apiKey) throw new Error('DEEPSEEK_API_KEY is required.');
   const responses = options.responses ?? createResponsesApi(apiKey);
+  const temperature = options.temperature === undefined
+    ? DEEPSEEK_TEMPERATURE
+    : options.temperature;
+  if (
+    temperature !== null
+    && (!Number.isFinite(temperature) || temperature < 0 || temperature > 2)
+  ) {
+    throw new Error('DeepSeek temperature must be null or a number from 0 to 2.');
+  }
   return {
     async createTurn(request): Promise<ModelTurnResult> {
-      const body = createRequest(request);
+      const body = createRequest(request, temperature);
       const response = await responses.create(body, { signal: request.signal });
       return parseResponse(response);
     }
@@ -67,7 +78,10 @@ function createResponsesApi(apiKey: string): ResponsesApi {
   };
 }
 
-function createRequest(request: ModelTurnRequest): ResponseCreateParamsNonStreaming {
+function createRequest(
+  request: ModelTurnRequest,
+  temperature: number | null
+): ResponseCreateParamsNonStreaming {
   const tools = request.tools.map(tool => ({
     type: 'function' as const,
     name: tool.name,
@@ -76,6 +90,7 @@ function createRequest(request: ModelTurnRequest): ResponseCreateParamsNonStream
   })) as NonNullable<ResponseCreateParamsNonStreaming['tools']>;
   return {
     model: DEEPSEEK_MODEL,
+    ...(temperature === null ? {} : { temperature }),
     instructions: request.instructions,
     input: request.history.map(toResponseInput),
     tools,
