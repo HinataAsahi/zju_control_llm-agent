@@ -41,6 +41,15 @@ Do not claim completion without evidence.
 
 Run the most relevant available tests, checks, builds, or focused validations. Clearly state anything that could not be verified.
 
+## DeepSeek API authorization
+
+For this repository, the user authorizes paid DeepSeek API calls without repeated confirmation when they are necessary for development or experiments. Use only the key stored in the local user configuration outside the repository.
+
+- Never print, log, commit, or copy the key into repository files or command output.
+- Keep requests bounded and do not enable automatic or unbounded retries.
+- Stop and diagnose unexpected failures before issuing additional paid reruns.
+- Report the tasks executed, outcomes, and recorded Token usage.
+
 ## Git publication
 
 For this repository, verified work may be pushed to the configured GitHub remote without requesting confirmation again when:
