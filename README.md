@@ -203,6 +203,14 @@ npm run experiment:stage2b -- plan --repetitions 2
 
 `plan` 固定展开 T2、T7 与三种条件的笛卡尔积，`--repetitions` 接受 `1..100` 的整数，默认为 1。它不读取 API 密钥、不连接 MCP、不会创建本地运行记录，也不会产生费用。输出中的 `totalRuns` 是计划实验数；`upperBounds.modelRequests` 和 `upperBounds.toolCalls` 分别按每次实验最多 5 轮、4 次工具调用计算，是理论安全上限而不是实际用量或费用预测。
 
+确认规模后，我可以把相同计划冻结为一个本地批次清单：
+
+```bash
+npm run experiment:stage2b -- prepare --repetitions 2
+```
+
+`prepare` 同样不读取密钥、不连接模型或 MCP，也不会执行实验。它在 `.experiment-runs/stage-2b/batches/<batch-id>/manifest.json` 保存模型配置、运行限制和稳定的 `runKey`，所有实验项初始为 `pending`。批次目录权限为 `0700`，清单文件为 `0600`；清单和后续状态仍属于本地实验记录，不会提交到 GitHub。执行阶段将复用这份清单，并把条目更新为 `completed` 或 `failed`，以支持中断后的断点恢复。
+
 ## 项目结构
 
 ```text
@@ -222,4 +230,4 @@ docs/learning-notes/             前期学习材料
 
 ## 下一步
 
-Stage 2B 已完成四类 Explicit 代表路径、T2/T7 的 Description/Skill 真实单次对比，以及不产生费用的重复实验计划预览。下一步将让执行器消费这份稳定计划，记录随机性参数并支持断点恢复；随后生成脱敏的结构化汇总和带不确定性说明的统计报告，而不是继续依赖人工整理单次记录。
+Stage 2B 已完成四类 Explicit 代表路径、T2/T7 的 Description/Skill 真实单次对比，以及不产生费用的计划预览和私有批次清单。下一步将让执行器逐项消费清单，关联每条运行记录并以原子方式更新状态；再加入中断恢复和随机性参数记录，随后生成脱敏的结构化汇总与带不确定性说明的统计报告。
