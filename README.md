@@ -211,6 +211,14 @@ npm run experiment:stage2b -- prepare --repetitions 2
 
 `prepare` 同样不读取密钥、不连接模型或 MCP，也不会执行实验。它在 `.experiment-runs/stage-2b/batches/<batch-id>/manifest.json` 保存模型配置、运行限制和稳定的 `runKey`，所有实验项初始为 `pending`。批次目录权限为 `0700`，清单文件为 `0600`；清单和后续状态仍属于本地实验记录，不会提交到 GitHub。执行阶段将复用这份清单，并把条目更新为 `completed` 或 `failed`，以支持中断后的断点恢复。
 
+准备好 API 密钥后，我可以只执行指定批次中的第一个 `pending` 条目：
+
+```bash
+npm run experiment:stage2b -- run-next --batch <batch-id>
+```
+
+`run-next` 会产生 DeepSeek API 费用。它每次最多执行一个条目，先保存标准 Stage 2B `record.json`，再以原子文件替换更新清单并关联 `recordRunId`。模型答案错误属于有效观察，记录为 `completed` 并保留 `taskSuccess: false`；基础设施、协议、模型输出格式或限制错误记录为 `failed`。两种终态都不会被下一次 `run-next` 自动重试。当前版本不支持对同一批次并发运行多个 `run-next`，也尚未自动修复“运行记录已写入但进程在清单更新前中断”的情况。
+
 ## 项目结构
 
 ```text
@@ -230,4 +238,4 @@ docs/learning-notes/             前期学习材料
 
 ## 下一步
 
-Stage 2B 已完成四类 Explicit 代表路径、T2/T7 的 Description/Skill 真实单次对比，以及不产生费用的计划预览和私有批次清单。下一步将让执行器逐项消费清单，关联每条运行记录并以原子方式更新状态；再加入中断恢复和随机性参数记录，随后生成脱敏的结构化汇总与带不确定性说明的统计报告。
+Stage 2B 已完成四类 Explicit 代表路径、T2/T7 的 Description/Skill 真实单次对比，以及计划预览、私有批次清单和单条顺序执行。下一步将增加中断后的记录对账与恢复，防止清单更新窗口造成重复付费运行；再加入并发保护和随机性参数记录，随后生成脱敏的结构化汇总与带不确定性说明的统计报告。
