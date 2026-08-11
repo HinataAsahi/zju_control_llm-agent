@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "scope": "descriptive-observations",
   "batches": [
     {
@@ -47,6 +47,10 @@
           "recoverySuccess": null,
           "turns": 3,
           "toolCalls": 2,
+          "tracePath": [
+            "inspect-root:ok",
+            "root-aware-name-stream-query:ok"
+          ],
           "usage": {
             "inputTokens": 2172,
             "cachedInputTokens": 1920,
@@ -64,6 +68,13 @@
           "recoverySuccess": null,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "root-unaware-name-array-query:malformed-output",
+            "root-unaware-name-array-query:malformed-output",
+            "inspect-root:malformed-output",
+            "inspect-root:malformed-output",
+            "root-unaware-name-array-query:missing-output"
+          ],
           "usage": {
             "inputTokens": 4190,
             "cachedInputTokens": 3584,
@@ -81,6 +92,13 @@
           "recoverySuccess": null,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+            "other-query:JQ_RUNTIME_ERROR",
+            "other-query:ok",
+            "other-query:ok",
+            "root-aware-name-array-query:missing-output"
+          ],
           "usage": {
             "inputTokens": 6257,
             "cachedInputTokens": 5760,
@@ -98,6 +116,12 @@
           "recoverySuccess": true,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:ok"
+          ],
           "usage": {
             "inputTokens": 4429,
             "cachedInputTokens": 3840,
@@ -115,6 +139,13 @@
           "recoverySuccess": null,
           "turns": 4,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "other-query:JQ_RUNTIME_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:missing-output"
+          ],
           "usage": {
             "inputTokens": 3586,
             "cachedInputTokens": 2944,
@@ -132,6 +163,13 @@
           "recoverySuccess": null,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "other-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:missing-output"
+          ],
           "usage": {
             "inputTokens": 6443,
             "cachedInputTokens": 5888,
@@ -187,6 +225,11 @@
           "recoverySuccess": null,
           "turns": 4,
           "toolCalls": 3,
+          "tracePath": [
+            "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-name-stream-query:ok"
+          ],
           "usage": {
             "inputTokens": 3188,
             "cachedInputTokens": 2816,
@@ -204,6 +247,11 @@
           "recoverySuccess": null,
           "turns": 4,
           "toolCalls": 3,
+          "tracePath": [
+            "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-name-stream-query:ok"
+          ],
           "usage": {
             "inputTokens": 3136,
             "cachedInputTokens": 2816,
@@ -221,6 +269,11 @@
           "recoverySuccess": null,
           "turns": 4,
           "toolCalls": 3,
+          "tracePath": [
+            "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-name-stream-query:ok"
+          ],
           "usage": {
             "inputTokens": 4800,
             "cachedInputTokens": 4352,
@@ -238,6 +291,12 @@
           "recoverySuccess": true,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:ok"
+          ],
           "usage": {
             "inputTokens": 4425,
             "cachedInputTokens": 3968,
@@ -255,6 +314,12 @@
           "recoverySuccess": true,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:ok"
+          ],
           "usage": {
             "inputTokens": 4360,
             "cachedInputTokens": 3840,
@@ -272,6 +337,12 @@
           "recoverySuccess": true,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:ok"
+          ],
           "usage": {
             "inputTokens": 6440,
             "cachedInputTokens": 6144,
@@ -327,6 +398,11 @@
           "recoverySuccess": null,
           "turns": 4,
           "toolCalls": 3,
+          "tracePath": [
+            "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-name-stream-query:ok"
+          ],
           "usage": {
             "inputTokens": 3188,
             "cachedInputTokens": 2816,
@@ -344,6 +420,11 @@
           "recoverySuccess": null,
           "turns": 4,
           "toolCalls": 3,
+          "tracePath": [
+            "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-name-stream-query:ok"
+          ],
           "usage": {
             "inputTokens": 3188,
             "cachedInputTokens": 2816,
@@ -361,6 +442,11 @@
           "recoverySuccess": null,
           "turns": 4,
           "toolCalls": 3,
+          "tracePath": [
+            "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-name-stream-query:ok"
+          ],
           "usage": {
             "inputTokens": 3136,
             "cachedInputTokens": 2816,
@@ -378,6 +464,11 @@
           "recoverySuccess": null,
           "turns": 4,
           "toolCalls": 3,
+          "tracePath": [
+            "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-name-stream-query:ok"
+          ],
           "usage": {
             "inputTokens": 3136,
             "cachedInputTokens": 2816,
@@ -395,6 +486,11 @@
           "recoverySuccess": null,
           "turns": 4,
           "toolCalls": 3,
+          "tracePath": [
+            "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-name-array-query:ok"
+          ],
           "usage": {
             "inputTokens": 4802,
             "cachedInputTokens": 4480,
@@ -412,6 +508,11 @@
           "recoverySuccess": null,
           "turns": 4,
           "toolCalls": 3,
+          "tracePath": [
+            "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-name-array-query:ok"
+          ],
           "usage": {
             "inputTokens": 4802,
             "cachedInputTokens": 4480,
@@ -429,6 +530,12 @@
           "recoverySuccess": true,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:ok"
+          ],
           "usage": {
             "inputTokens": 4425,
             "cachedInputTokens": 3968,
@@ -446,6 +553,12 @@
           "recoverySuccess": true,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:ok"
+          ],
           "usage": {
             "inputTokens": 4425,
             "cachedInputTokens": 3968,
@@ -463,6 +576,12 @@
           "recoverySuccess": true,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:ok"
+          ],
           "usage": {
             "inputTokens": 4360,
             "cachedInputTokens": 3968,
@@ -480,6 +599,12 @@
           "recoverySuccess": true,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:ok"
+          ],
           "usage": {
             "inputTokens": 4362,
             "cachedInputTokens": 3968,
@@ -497,6 +622,12 @@
           "recoverySuccess": true,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:ok"
+          ],
           "usage": {
             "inputTokens": 6440,
             "cachedInputTokens": 6144,
@@ -514,6 +645,12 @@
           "recoverySuccess": true,
           "turns": 5,
           "toolCalls": 4,
+          "tracePath": [
+            "required-invalid-filter:JQ_SYNTAX_ERROR",
+            "root-unaware-count-query:JQ_RUNTIME_ERROR",
+            "inspect-root:ok",
+            "root-aware-count-query:ok"
+          ],
           "usage": {
             "inputTokens": 6440,
             "cachedInputTokens": 6144,
@@ -682,6 +819,122 @@
           "mean": 6810,
           "sum": 20430
         }
+      }
+    ]
+  },
+  "traceAnalysis": {
+    "sourceRoles": [
+      "calibrated",
+      "repeat"
+    ],
+    "totalRuns": 18,
+    "cells": [
+      {
+        "taskId": "T2",
+        "condition": "explicit",
+        "observations": 3,
+        "distinctPaths": 1,
+        "paths": [
+          {
+            "steps": [
+              "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+              "inspect-root:ok",
+              "root-aware-name-stream-query:ok"
+            ],
+            "count": 3
+          }
+        ]
+      },
+      {
+        "taskId": "T2",
+        "condition": "description",
+        "observations": 3,
+        "distinctPaths": 1,
+        "paths": [
+          {
+            "steps": [
+              "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+              "inspect-root:ok",
+              "root-aware-name-stream-query:ok"
+            ],
+            "count": 3
+          }
+        ]
+      },
+      {
+        "taskId": "T2",
+        "condition": "skill",
+        "observations": 3,
+        "distinctPaths": 2,
+        "paths": [
+          {
+            "steps": [
+              "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+              "inspect-root:ok",
+              "root-aware-name-array-query:ok"
+            ],
+            "count": 2
+          },
+          {
+            "steps": [
+              "root-unaware-name-array-query:JQ_RUNTIME_ERROR",
+              "inspect-root:ok",
+              "root-aware-name-stream-query:ok"
+            ],
+            "count": 1
+          }
+        ]
+      },
+      {
+        "taskId": "T7",
+        "condition": "explicit",
+        "observations": 3,
+        "distinctPaths": 1,
+        "paths": [
+          {
+            "steps": [
+              "required-invalid-filter:JQ_SYNTAX_ERROR",
+              "root-unaware-count-query:JQ_RUNTIME_ERROR",
+              "inspect-root:ok",
+              "root-aware-count-query:ok"
+            ],
+            "count": 3
+          }
+        ]
+      },
+      {
+        "taskId": "T7",
+        "condition": "description",
+        "observations": 3,
+        "distinctPaths": 1,
+        "paths": [
+          {
+            "steps": [
+              "required-invalid-filter:JQ_SYNTAX_ERROR",
+              "root-unaware-count-query:JQ_RUNTIME_ERROR",
+              "inspect-root:ok",
+              "root-aware-count-query:ok"
+            ],
+            "count": 3
+          }
+        ]
+      },
+      {
+        "taskId": "T7",
+        "condition": "skill",
+        "observations": 3,
+        "distinctPaths": 1,
+        "paths": [
+          {
+            "steps": [
+              "required-invalid-filter:JQ_SYNTAX_ERROR",
+              "root-unaware-count-query:JQ_RUNTIME_ERROR",
+              "inspect-root:ok",
+              "root-aware-count-query:ok"
+            ],
+            "count": 3
+          }
+        ]
       }
     ]
   }

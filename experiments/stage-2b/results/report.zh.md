@@ -29,6 +29,19 @@
 | T7 | description | 3/3 | 3/3 | 3/3 | 5-5 / 5 | 4-4 / 4 | 4730-4736 / 4732 |
 | T7 | skill | 3/3 | 3/3 | 3/3 | 5-5 / 5 | 4-4 / 4 | 6810-6810 / 6810 |
 
+## 工具调用路径
+
+路径仅包含归一化动作类别与稳定结果码，不包含原始 jq 参数或工具输出。
+
+| 任务 | 条件 | 观测数 | 不同路径数 | 路径（次数） |
+|---|---|---:|---:|---|
+| T2 | explicit | 3 | 1 | root-unaware-name-array-query:JQ_RUNTIME_ERROR -> inspect-root:ok -> root-aware-name-stream-query:ok (x3) |
+| T2 | description | 3 | 1 | root-unaware-name-array-query:JQ_RUNTIME_ERROR -> inspect-root:ok -> root-aware-name-stream-query:ok (x3) |
+| T2 | skill | 3 | 2 | root-unaware-name-array-query:JQ_RUNTIME_ERROR -> inspect-root:ok -> root-aware-name-array-query:ok (x2)<br>root-unaware-name-array-query:JQ_RUNTIME_ERROR -> inspect-root:ok -> root-aware-name-stream-query:ok (x1) |
+| T7 | explicit | 3 | 1 | required-invalid-filter:JQ_SYNTAX_ERROR -> root-unaware-count-query:JQ_RUNTIME_ERROR -> inspect-root:ok -> root-aware-count-query:ok (x3) |
+| T7 | description | 3 | 1 | required-invalid-filter:JQ_SYNTAX_ERROR -> root-unaware-count-query:JQ_RUNTIME_ERROR -> inspect-root:ok -> root-aware-count-query:ok (x3) |
+| T7 | skill | 3 | 1 | required-invalid-filter:JQ_SYNTAX_ERROR -> root-unaware-count-query:JQ_RUNTIME_ERROR -> inspect-root:ok -> root-aware-count-query:ok (x3) |
+
 ## 逐项观测
 
 | 角色 | 任务 | 条件 | 状态 | 任务成功 | 恢复成功 | 回合 | 工具调用 | 总 token |
