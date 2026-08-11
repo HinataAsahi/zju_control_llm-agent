@@ -41,6 +41,7 @@ export function diagnoseExperimentAnswer(text: string): Record<string, unknown> 
     trimmedLength: trimmed.length,
     hasMarkdownFence: /```/.test(trimmed),
     ...(document.markdownFenceUnwrapped ? { markdownFenceUnwrapped: true } : {}),
+    ...(document.bareJsonObjectExtracted ? { bareJsonObjectExtracted: true } : {}),
     ...(document.surroundingTextPresent ? { surroundingTextPresent: true } : {}),
     jsonParseSucceeded: false
   };
@@ -126,25 +127,103 @@ function projectAnswerFields(value: unknown): unknown {
 function jsonDocument(text: string): {
   text: string;
   markdownFenceUnwrapped: boolean;
+  bareJsonObjectExtracted: boolean;
   surroundingTextPresent: boolean;
 } {
   const trimmed = text.trim();
+  if (isValidJson(trimmed)) {
+    return {
+      text: trimmed,
+      markdownFenceUnwrapped: false,
+      bareJsonObjectExtracted: false,
+      surroundingTextPresent: false
+    };
+  }
   const fenceCount = trimmed.match(/```/g)?.length ?? 0;
   const fenced = fenceCount === 2
     ? /```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```/i.exec(trimmed)
     : null;
-  if (!fenced) {
+  if (fenced) {
+    return {
+      text: fenced[1]!,
+      markdownFenceUnwrapped: true,
+      bareJsonObjectExtracted: false,
+      surroundingTextPresent: fenced[0].length !== trimmed.length
+    };
+  }
+  if (fenceCount > 0) {
     return {
       text: trimmed,
       markdownFenceUnwrapped: false,
+      bareJsonObjectExtracted: false,
+      surroundingTextPresent: false
+    };
+  }
+  const candidates = jsonObjectCandidates(trimmed).filter(isValidJson);
+  if (candidates.length !== 1) {
+    return {
+      text: trimmed,
+      markdownFenceUnwrapped: false,
+      bareJsonObjectExtracted: false,
       surroundingTextPresent: false
     };
   }
   return {
-    text: fenced[1]!,
-    markdownFenceUnwrapped: true,
-    surroundingTextPresent: fenced[0].length !== trimmed.length
+    text: candidates[0]!,
+    markdownFenceUnwrapped: false,
+    bareJsonObjectExtracted: true,
+    surroundingTextPresent: candidates[0]!.length !== trimmed.length
   };
+}
+
+function jsonObjectCandidates(text: string): string[] {
+  const candidates: string[] = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (start < 0) {
+      if (character === '{') {
+        start = index;
+        depth = 1;
+      }
+      continue;
+    }
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+    } else if (character === '{') {
+      depth += 1;
+    } else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        candidates.push(text.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+  return candidates;
+}
+
+function isValidJson(text: string): boolean {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

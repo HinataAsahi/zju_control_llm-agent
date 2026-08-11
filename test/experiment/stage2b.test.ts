@@ -111,15 +111,13 @@ test('accepts only the explicit smoke command', () => {
   assert.throws(() => parseStage2bArgs(['formal']), /smoke/);
 });
 
-test('accepts one JSON fence with provider prose and an extra top-level field', async t => {
+test('accepts one bare JSON object with provider prose and an extra top-level field', async t => {
   const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
   await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
   const model = new T1FakeModel([
     'The result is:',
-    '```json',
     '{"status":"completed","answer":3,"explanation":"Counted with jq.","tool":"jq_query"}',
-    '```',
     'This follows from the tool output.'
   ].join('\n'));
 

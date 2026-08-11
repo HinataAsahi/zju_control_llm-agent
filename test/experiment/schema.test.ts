@@ -67,6 +67,13 @@ test('text parsing ignores provider-added top-level fields without weakening obj
   });
 });
 
+test('extracts one bare JSON object from prose and rejects ambiguous objects', () => {
+  const json = '{"status":"completed","answer":3,"explanation":"Counted {three} values."}';
+
+  assert.equal(parseExperimentAnswerText(`Result:\n${json}\nDone.`).answer, 3);
+  assert.throws(() => parseExperimentAnswerText(`${json}\n${json}`));
+});
+
 test('compares expected JSON canonically while preserving array order', () => {
   const answer = {
     status: 'completed' as const,
