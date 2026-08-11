@@ -20,7 +20,8 @@ import type { ModelTurnClient, ToolGateway } from '../agent/model-client.js';
 import {
   answerMatchesExpected,
   diagnoseExperimentAnswer,
-  parseExperimentAnswerText
+  parseExperimentAnswerText,
+  type ExperimentTask
 } from './schema.js';
 import {
   writeStage2bRecord,
@@ -28,7 +29,7 @@ import {
   type Stage2bToolEvent
 } from './stage2b-record.js';
 import { loadTasks } from './task-loader.js';
-import { prepareWorkspace } from './workspace.js';
+import { prepareWorkspace, type PreparedWorkspace } from './workspace.js';
 
 export interface Stage2bDependencies {
   createModelClient(apiKey: string): ModelTurnClient;
@@ -75,33 +76,64 @@ export async function runStage2bSmoke(options: {
   const experimentRoot = resolve(repositoryRoot, 'experiments/stage-2a');
   const runRoot = resolve(repositoryRoot, '.experiment-runs/stage-2b');
   const serverEntrypoint = resolve(repositoryRoot, 'dist/src/mcp/server.js');
-  const tasks = await loadTasks(experimentRoot);
-  const task = tasks.find(candidate => candidate.id === 'T1');
-  if (!task) throw new Error('Stage 2B requires task T1.');
-
   const startedAt = dependencies.now();
   const runId = createRunId(startedAt);
-  const workspace = await prepareWorkspace({
-    task,
-    condition: 'explicit',
-    experimentRoot,
-    runRoot,
-    runId
-  });
-  const outputSchemaValue: unknown = JSON.parse(await readFile(workspace.outputSchemaPath, 'utf8'));
-  if (!isRecord(outputSchemaValue)) throw new Error('Final answer schema must be a JSON object.');
+  let setup: {
+    task: ExperimentTask;
+    workspace: PreparedWorkspace;
+    outputSchema: Record<string, unknown>;
+    client: ModelTurnClient;
+  };
+  try {
+    const tasks = await loadTasks(experimentRoot);
+    const task = tasks.find(candidate => candidate.id === 'T1');
+    if (!task) throw new Error('Stage 2B requires task T1.');
+    const workspace = await prepareWorkspace({
+      task,
+      condition: 'explicit',
+      experimentRoot,
+      runRoot,
+      runId
+    });
+    const outputSchemaValue: unknown = JSON.parse(await readFile(workspace.outputSchemaPath, 'utf8'));
+    if (!isRecord(outputSchemaValue)) throw new Error('Final answer schema must be a JSON object.');
+    setup = {
+      task,
+      workspace,
+      outputSchema: outputSchemaValue,
+      client: dependencies.createModelClient(options.apiKey)
+    };
+  } catch {
+    return infrastructureRecord({
+      runId,
+      startedAt,
+      finishedAt: dependencies.now(),
+      category: 'configuration',
+      code: 'SETUP_FAILED'
+    });
+  }
 
-  const client = dependencies.createModelClient(options.apiKey);
-  const tools = await dependencies.connectTools({
-    serverEntrypoint,
-    root: workspace.path
-  });
+  let tools: ToolGateway;
+  try {
+    tools = await dependencies.connectTools({
+      serverEntrypoint,
+      root: setup.workspace.path
+    });
+  } catch {
+    return infrastructureRecord({
+      runId,
+      startedAt,
+      finishedAt: dependencies.now(),
+      category: 'mcp',
+      code: 'TOOL_CONNECTION_FAILED'
+    });
+  }
   const result = await runAgent({
-    client,
+    client: setup.client,
     tools,
     instructions: STAGE2B_INSTRUCTIONS,
-    input: workspace.prompt,
-    outputSchema: outputSchemaValue,
+    input: setup.workspace.prompt,
+    outputSchema: setup.outputSchema,
     parseFinalAnswer: parseExperimentAnswerText,
     diagnoseInvalidFinalAnswer: diagnoseExperimentAnswer,
     limits: { ...STAGE2B_LIMITS }
@@ -120,7 +152,7 @@ export async function runStage2bSmoke(options: {
     condition: 'explicit',
     status: result.status,
     taskSuccess: finalAnswer
-      ? answerMatchesExpected(finalAnswer, task.expected)
+      ? answerMatchesExpected(finalAnswer, setup.task.expected)
       : null,
     limits: { ...STAGE2B_LIMITS },
     turns: result.turns,
@@ -130,6 +162,40 @@ export async function runStage2bSmoke(options: {
     usage: { ...result.usage },
     durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
     ...(result.error ? { error: { ...result.error } } : {})
+  };
+}
+
+function infrastructureRecord(options: {
+  runId: string;
+  startedAt: Date;
+  finishedAt: Date;
+  category: 'configuration' | 'mcp';
+  code: string;
+}): Stage2bRecord {
+  return {
+    version: 1,
+    runId: options.runId,
+    startedAt: options.startedAt.toISOString(),
+    provider: 'deepseek',
+    model: DEEPSEEK_MODEL,
+    thinking: 'none',
+    taskId: 'T1',
+    condition: 'explicit',
+    status: 'infrastructure-error',
+    taskSuccess: null,
+    limits: { ...STAGE2B_LIMITS },
+    turns: 0,
+    toolCalls: 0,
+    toolEvents: [],
+    usage: {
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      reasoningOutputTokens: 0,
+      totalTokens: 0
+    },
+    durationMs: Math.max(0, options.finishedAt.getTime() - options.startedAt.getTime()),
+    error: { category: options.category, code: options.code }
   };
 }
 

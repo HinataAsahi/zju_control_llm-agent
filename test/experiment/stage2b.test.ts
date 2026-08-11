@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, rm } from 'node:fs/promises';
+import { cp, lstat, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -14,6 +14,7 @@ import {
   runStage2bSmoke,
   stage2bExitCode
 } from '../../src/experiment/stage2b.js';
+import { writeStage2bRecord } from '../../src/experiment/stage2b-record.js';
 
 class T1FakeModel implements ModelTurnClient {
   readonly requests: ModelTurnRequest[] = [];
@@ -120,6 +121,65 @@ test('returns a failing process code unless the smoke task completes correctly',
   assert.equal(stage2bExitCode({ status: 'completed', taskSuccess: false }), 1);
   assert.equal(stage2bExitCode({ status: 'infrastructure-error', taskSuccess: null }), 1);
   assert.equal(stage2bExitCode({ status: 'model-output-error', taskSuccess: null }), 1);
+});
+
+test('returns and privately persists a safe MCP connection failure record', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+  const times = [
+    new Date('2026-08-10T00:00:00.000Z'),
+    new Date('2026-08-10T00:00:00.025Z')
+  ];
+
+  const record = await runStage2bSmoke({
+    repositoryRoot,
+    apiKey: 'offline-test-key',
+    dependencies: {
+      createModelClient: () => new T1FakeModel(),
+      connectTools: async () => { throw new Error('/home/private/server failed'); },
+      now: () => times.shift() ?? new Date('2026-08-10T00:00:00.025Z')
+    }
+  });
+
+  assert.equal(record.status, 'infrastructure-error');
+  assert.equal(record.taskSuccess, null);
+  assert.equal(record.turns, 0);
+  assert.equal(record.toolCalls, 0);
+  assert.deepEqual(record.error, { category: 'mcp', code: 'TOOL_CONNECTION_FAILED' });
+  assert.deepEqual(record.usage, {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0,
+    totalTokens: 0
+  });
+  assert.doesNotMatch(JSON.stringify(record), /private|server failed/);
+
+  const path = await writeStage2bRecord(repositoryRoot, record);
+  assert.equal((await lstat(path)).mode & 0o777, 0o600);
+  assert.equal((await lstat(join(repositoryRoot, '.experiment-runs/stage-2b', record.runId))).mode & 0o777, 0o700);
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), record);
+});
+
+test('returns a safe configuration record when experiment setup fails', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+
+  const record = await runStage2bSmoke({
+    repositoryRoot,
+    apiKey: 'offline-test-key',
+    dependencies: {
+      createModelClient: () => { throw new Error('must not be reached'); },
+      connectTools: async () => { throw new Error('must not be reached'); }
+    }
+  });
+
+  assert.equal(record.status, 'infrastructure-error');
+  assert.equal(record.taskSuccess, null);
+  assert.equal(record.turns, 0);
+  assert.deepEqual(record.error, { category: 'configuration', code: 'SETUP_FAILED' });
+  assert.doesNotMatch(JSON.stringify(record), /must not be reached/);
 });
 
 test('accepts one nested answer in a fenced provider wrapper', async t => {
