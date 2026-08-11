@@ -91,6 +91,7 @@ test('maps function calls, final text, and token details', async () => {
   const responses: ResponsesApi = {
     async create() {
       return {
+        status: 'completed',
         output: [
           {
             type: 'function_call',
@@ -153,7 +154,7 @@ test('rejects missing keys and unsupported response output', async () => {
 
   const responses: ResponsesApi = {
     async create() {
-      return { output: [{ type: 'reasoning' }], usage: zeroUsage() };
+      return { status: 'completed', output: [{ type: 'reasoning' }], usage: zeroUsage() };
     }
   };
   await assert.rejects(
@@ -162,8 +163,33 @@ test('rejects missing keys and unsupported response output', async () => {
   );
 });
 
+test('rejects provider-declared incomplete and failed responses before parsing output', async () => {
+  for (const status of ['incomplete', 'failed'] as const) {
+    const responses: ResponsesApi = {
+      async create() {
+        return {
+          status,
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: '{"status":"completed"}' }]
+          }],
+          usage: zeroUsage()
+        };
+      }
+    };
+
+    await assert.rejects(
+      createDeepSeekModelClient({ apiKey: 'test-key', responses }).createTurn(request()),
+      error => error instanceof Error
+        && (error as Error & { error?: { code?: string } }).error?.code === `response_${status}`
+    );
+  }
+});
+
 function responseWithMessage(text: string): unknown {
   return {
+    status: 'completed',
     output: [{
       type: 'message',
       role: 'assistant',

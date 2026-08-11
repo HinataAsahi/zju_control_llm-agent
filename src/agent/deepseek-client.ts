@@ -108,7 +108,13 @@ function toResponseInput(item: ModelHistoryItem): ResponseInputItem {
 }
 
 function parseResponse(value: unknown): ModelTurnResult {
-  if (!isRecord(value) || !Array.isArray(value.output)) {
+  if (!isRecord(value)) {
+    throw new Error('DeepSeek returned an invalid response.');
+  }
+  if (value.status === 'incomplete' || value.status === 'failed') {
+    throw new DeepSeekResponseStatusError(value.status);
+  }
+  if (value.status !== 'completed' || !Array.isArray(value.output)) {
     throw new Error('DeepSeek returned an invalid response.');
   }
   const historyItems: ModelHistoryItem[] = [];
@@ -161,6 +167,16 @@ function parseResponse(value: unknown): ModelTurnResult {
     ...(finalText ? { finalText } : {}),
     usage: parseUsage(value.usage)
   };
+}
+
+class DeepSeekResponseStatusError extends Error {
+  readonly error: { code: string };
+
+  constructor(status: 'incomplete' | 'failed') {
+    super(`DeepSeek response ${status}.`);
+    this.name = 'DeepSeekResponseStatusError';
+    this.error = { code: `response_${status}` };
+  }
 }
 
 function parseUsage(value: unknown): ModelUsage {
