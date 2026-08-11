@@ -38,7 +38,7 @@ test('summarizes pilot and calibrated batches without publishing raw traces', ()
   const serialized = JSON.stringify(report);
   const markdown = renderStage2bComparisonMarkdown(report);
 
-  assert.equal(report.version, 2);
+  assert.equal(report.version, 3);
   assert.equal(report.scope, 'descriptive-observations');
   assert.deepEqual(report.batches.map(batch => ({
     role: batch.role,
@@ -68,6 +68,7 @@ test('summarizes pilot and calibrated batches without publishing raw traces', ()
     recoverySuccess: true,
     turns: 5,
     toolCalls: 4,
+    tracePath: [],
     usage: usage(250)
   });
   assert.doesNotMatch(serialized, /recordRunId|toolEvents|finalAnswer|secret|\/home\//i);
@@ -118,6 +119,105 @@ test('combines one calibrated run and two repeat runs into n=3 cell statistics',
   assert.match(markdown, /固定配置重复观测.*n=3/s);
   assert.match(markdown, /T2.*explicit.*N\/A/);
   assert.doesNotMatch(markdown, /0\/0/);
+});
+
+test('publishes sanitized trace paths without raw jq filters or tool output', () => {
+  const calibratedRecords = successfulRecords(200);
+  calibratedRecords[0] = withJqTrace(calibratedRecords[0]!, [
+    ['[.[] | select(.active == true) | .name]', 'JQ_RUNTIME_ERROR'],
+    ['.', 'ok'],
+    ['.users[] | select(.active == true) | .name', 'ok']
+  ]);
+  const repeatRecords = repeatedSuccessfulRecords(300, 400);
+  repeatRecords[0] = withJqTrace(repeatRecords[0]!, [
+    ['[.[] | select(.active == true) | .name]', 'JQ_RUNTIME_ERROR'],
+    ['.', 'ok'],
+    ['.users[] | select(.active == true) | .name', 'ok']
+  ]);
+  repeatRecords[1] = withJqTrace(repeatRecords[1]!, [
+    ['[.[] | select(.active == true) | .name]', 'JQ_RUNTIME_ERROR'],
+    ['.', 'ok'],
+    ['[.users[] | select(.active == true) | .name]', 'ok']
+  ]);
+  const report = summarizeStage2bBatches([
+    batchFixture('calibrated', 0, 6, 5, calibratedRecords),
+    batchFixture('repeat', 0, 6, 5, repeatRecords)
+  ]);
+
+  assert.deepEqual(report.batches[0]?.runs[0]?.tracePath, [
+    'root-unaware-name-array-query:JQ_RUNTIME_ERROR',
+    'inspect-root:ok',
+    'root-aware-name-stream-query:ok'
+  ]);
+  assert.deepEqual(report.traceAnalysis?.cells[0], {
+    taskId: 'T2',
+    condition: 'explicit',
+    observations: 3,
+    distinctPaths: 2,
+    paths: [{
+      steps: [
+        'root-unaware-name-array-query:JQ_RUNTIME_ERROR',
+        'inspect-root:ok',
+        'root-aware-name-stream-query:ok'
+      ],
+      count: 2
+    }, {
+      steps: [
+        'root-unaware-name-array-query:JQ_RUNTIME_ERROR',
+        'inspect-root:ok',
+        'root-aware-name-array-query:ok'
+      ],
+      count: 1
+    }]
+  });
+  const publicText = `${JSON.stringify(report)}\n${renderStage2bComparisonMarkdown(report)}`;
+  assert.match(publicText, /JQ_RUNTIME_ERROR|root-aware-name/);
+  assert.doesNotMatch(publicText, /select\(|\.users|\"filter\"|call-secret/);
+});
+
+test('uses fixed trace labels for malformed or unsafe jq events', () => {
+  const records = successfulRecords(200);
+  records[0] = {
+    ...records[0]!,
+    toolEvents: [{
+      type: 'function_call',
+      callId: 'bad-arguments',
+      name: 'jq_query',
+      arguments: 'private-filter-text'
+    }, {
+      type: 'function_call_output',
+      callId: 'bad-arguments',
+      output: 'private-output-text'
+    }, {
+      type: 'function_call',
+      callId: 'unsafe-code',
+      name: 'jq_query',
+      arguments: JSON.stringify({ filter: '.', source: { type: 'file', path: 'users.json' } })
+    }, {
+      type: 'function_call_output',
+      callId: 'unsafe-code',
+      output: JSON.stringify({ ok: false, error: { code: 'PRIVATE_SECRET_CODE' } })
+    }, {
+      type: 'function_call',
+      callId: 'ignored-tool',
+      name: 'other_tool',
+      arguments: 'private-other-arguments'
+    }]
+  };
+
+  const report = summarizeStage2bBatches([
+    batchFixture('calibrated', 0, 6, 5, records)
+  ]);
+  const serialized = JSON.stringify(report);
+
+  assert.deepEqual(report.batches[0]?.runs[0]?.tracePath, [
+    'invalid-arguments:malformed-output',
+    'inspect-root:tool-error'
+  ]);
+  assert.doesNotMatch(
+    serialized,
+    /private-filter-text|private-output-text|PRIVATE_SECRET_CODE|private-other-arguments/
+  );
 });
 
 test('rejects a batch whose record does not match its manifest configuration', () => {
@@ -372,6 +472,30 @@ function repeatedSuccessfulRecords(
   const first = successfulRecords(firstTotalTokens);
   const second = successfulRecords(secondTotalTokens);
   return first.flatMap((record, index) => [record, second[index]!]);
+}
+
+function withJqTrace(
+  record: Stage2bRecord,
+  steps: Array<[filter: string, outcome: 'ok' | 'JQ_RUNTIME_ERROR' | 'JQ_SYNTAX_ERROR']>
+): Stage2bRecord {
+  return {
+    ...record,
+    toolEvents: steps.flatMap(([filter, outcome], index) => {
+      const callId = `call-${index + 1}`;
+      return [{
+        type: 'function_call' as const,
+        callId,
+        name: 'jq_query',
+        arguments: JSON.stringify({ filter, source: { type: 'file', path: 'users.json' } })
+      }, {
+        type: 'function_call_output' as const,
+        callId,
+        output: outcome === 'ok'
+          ? JSON.stringify({ ok: true, values: [3], exitCode: 0 })
+          : JSON.stringify({ ok: false, error: { code: outcome }, exitCode: 5 })
+      }];
+    })
+  };
 }
 
 async function persistBatch(

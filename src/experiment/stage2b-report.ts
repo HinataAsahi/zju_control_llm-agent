@@ -28,6 +28,7 @@ export type Stage2bReportRecord = Pick<
   | 'limits'
   | 'turns'
   | 'toolCalls'
+  | 'toolEvents'
   | 'usage'
 >;
 
@@ -46,6 +47,7 @@ export interface Stage2bPublicRun {
   recoverySuccess: boolean | null;
   turns: number;
   toolCalls: number;
+  tracePath: string[];
   usage: ModelUsage;
 }
 
@@ -75,10 +77,11 @@ export interface Stage2bPublicBatch {
 }
 
 export interface Stage2bPublicReport {
-  version: 2;
+  version: 3;
   scope: 'descriptive-observations';
   batches: Stage2bPublicBatch[];
   repeatedComparison?: Stage2bRepeatedComparison;
+  traceAnalysis?: Stage2bTraceAnalysis;
 }
 
 export interface Stage2bRepeatedComparison {
@@ -99,6 +102,23 @@ export interface Stage2bRepeatedCell {
   turns: MetricSummary;
   toolCalls: MetricSummary;
   totalTokens: MetricSummary & { sum: number };
+}
+
+export interface Stage2bTraceAnalysis {
+  sourceRoles: ['calibrated', 'repeat'];
+  totalRuns: number;
+  cells: Stage2bTraceCell[];
+}
+
+export interface Stage2bTraceCell {
+  taskId: 'T2' | 'T7';
+  condition: 'explicit' | 'description' | 'skill';
+  observations: number;
+  distinctPaths: number;
+  paths: Array<{
+    steps: string[];
+    count: number;
+  }>;
 }
 
 export interface MetricSummary {
@@ -122,6 +142,31 @@ const usageSchema = z.strictObject({
   totalTokens: z.number().int().nonnegative()
 });
 
+const toolEventSchema = z.discriminatedUnion('type', [
+  z.strictObject({
+    type: z.literal('function_call'),
+    callId: z.string(),
+    name: z.string(),
+    arguments: z.string()
+  }),
+  z.strictObject({
+    type: z.literal('function_call_output'),
+    callId: z.string(),
+    output: z.string()
+  })
+]);
+
+const publicJqErrorCodes = new Set([
+  'PATH_NOT_ALLOWED',
+  'FILE_NOT_FOUND',
+  'INPUT_TOO_LARGE',
+  'JQ_SYNTAX_ERROR',
+  'JQ_RUNTIME_ERROR',
+  'TIMEOUT',
+  'OUTPUT_LIMIT',
+  'INTERNAL_ERROR'
+]);
+
 const reportRecordSchema: z.ZodType<Stage2bReportRecord> = z.object({
   runId: z.string(),
   provider: z.literal('deepseek'),
@@ -144,6 +189,7 @@ const reportRecordSchema: z.ZodType<Stage2bReportRecord> = z.object({
   limits: limitsSchema,
   turns: z.number().int().nonnegative(),
   toolCalls: z.number().int().nonnegative(),
+  toolEvents: z.array(toolEventSchema),
   usage: usageSchema
 });
 
@@ -154,11 +200,13 @@ export function summarizeStage2bBatches(inputs: Stage2bReportInput[]): Stage2bPu
   }
   const batches = inputs.map(summarizeBatch);
   const repeatedComparison = buildRepeatedComparison(batches);
+  const traceAnalysis = buildTraceAnalysis(batches);
   return {
-    version: 2,
+    version: 3,
     scope: 'descriptive-observations',
     batches,
-    ...(repeatedComparison ? { repeatedComparison } : {})
+    ...(repeatedComparison ? { repeatedComparison } : {}),
+    ...(traceAnalysis ? { traceAnalysis } : {})
   };
 }
 
@@ -198,6 +246,18 @@ export function renderStage2bComparisonMarkdown(report: Stage2bPublicReport): st
       '| 任务 | 条件 | 完成 | 任务成功 | 恢复成功（可判定） | 回合 min-max / mean | 工具调用 min-max / mean | Token min-max / mean |',
       '|---|---|---:|---:|---:|---:|---:|---:|',
       ...report.repeatedComparison.cells.map(cell => `| ${cell.taskId} | ${cell.condition} | ${cell.completed}/${cell.observations} | ${cell.taskSuccess}/${cell.observations} | ${formatRatio(cell.recoverySuccess, cell.recoveryApplicable)} | ${formatMetric(cell.turns)} | ${formatMetric(cell.toolCalls)} | ${formatMetric(cell.totalTokens)} |`)
+    );
+  }
+  if (report.traceAnalysis) {
+    lines.push(
+      '',
+      '## 工具调用路径',
+      '',
+      '路径仅包含归一化动作类别与稳定结果码，不包含原始 jq 参数或工具输出。',
+      '',
+      '| 任务 | 条件 | 观测数 | 不同路径数 | 路径（次数） |',
+      '|---|---|---:|---:|---|',
+      ...report.traceAnalysis.cells.map(cell => `| ${cell.taskId} | ${cell.condition} | ${cell.observations} | ${cell.distinctPaths} | ${cell.paths.map(path => `${path.steps.join(' -> ')} (x${path.count})`).join('<br>')} |`)
     );
   }
   lines.push(
@@ -386,8 +446,111 @@ function publicRun(
     recoverySuccess: record.recoverySuccess,
     turns: record.turns,
     toolCalls: record.toolCalls,
+    tracePath: buildTracePath(record.toolEvents),
     usage: { ...record.usage }
   };
+}
+
+function buildTraceAnalysis(
+  batches: Stage2bPublicBatch[]
+): Stage2bTraceAnalysis | undefined {
+  const repeat = batches.find(batch => batch.role === 'repeat');
+  if (!repeat) return undefined;
+  const calibrated = batches.find(batch => batch.role === 'calibrated');
+  if (!calibrated) throw new Error('Stage 2B trace analysis requires a calibrated batch.');
+  if (!sameBatchConfiguration(calibrated, repeat)) {
+    throw new Error('Stage 2B trace configuration does not match the calibrated batch.');
+  }
+
+  const allRuns = [...calibrated.runs, ...repeat.runs];
+  const cells = (['T2', 'T7'] as const).flatMap(taskId =>
+    (['explicit', 'description', 'skill'] as const).map(condition => {
+      const runs = allRuns.filter(run => run.taskId === taskId && run.condition === condition);
+      if (runs.length === 0) throw new Error(`Stage 2B trace cell is empty: ${taskId}/${condition}.`);
+      const counts = new Map<string, { steps: string[]; count: number }>();
+      for (const run of runs) {
+        const key = JSON.stringify(run.tracePath);
+        const current = counts.get(key);
+        if (current) current.count += 1;
+        else counts.set(key, { steps: [...run.tracePath], count: 1 });
+      }
+      const paths = [...counts.entries()]
+        .sort(([leftKey, left], [rightKey, right]) => right.count - left.count
+          || leftKey.localeCompare(rightKey))
+        .map(([, value]) => value);
+      return {
+        taskId,
+        condition,
+        observations: runs.length,
+        distinctPaths: paths.length,
+        paths
+      };
+    })
+  );
+  return {
+    sourceRoles: ['calibrated', 'repeat'],
+    totalRuns: allRuns.length,
+    cells
+  };
+}
+
+function buildTracePath(events: Stage2bRecord['toolEvents']): string[] {
+  const outputs = new Map(events
+    .filter(event => event.type === 'function_call_output')
+    .map(event => [event.callId, event.output]));
+  const path: string[] = [];
+  for (const event of events) {
+    if (event.type !== 'function_call' || event.name !== 'jq_query') continue;
+    const action = classifyJqAction(event.arguments);
+    const output = outputs.get(event.callId);
+    path.push(`${action}:${classifyToolOutcome(output)}`);
+  }
+  return path;
+}
+
+function classifyJqAction(argumentsText: string): string {
+  const parsed = parseJsonObject(argumentsText);
+  const filter = parsed?.filter;
+  if (typeof filter !== 'string') return 'invalid-arguments';
+  const normalized = filter.trim();
+  if (normalized === 'if') return 'required-invalid-filter';
+  if (normalized === '.') return 'inspect-root';
+
+  const rootAware = normalized.includes('.users');
+  const arrayOutput = normalized.startsWith('[');
+  if (normalized.includes('.name')) {
+    return `${rootAware ? 'root-aware' : 'root-unaware'}-name-${arrayOutput ? 'array' : 'stream'}-query`;
+  }
+  if (normalized.includes('length') && normalized.includes('.active')) {
+    return `${rootAware ? 'root-aware' : 'root-unaware'}-count-query`;
+  }
+  return 'other-query';
+}
+
+function classifyToolOutcome(output: string | undefined): string {
+  if (output === undefined) return 'missing-output';
+  const parsed = parseJsonObject(output);
+  if (!parsed) return 'malformed-output';
+  if (parsed.ok === true) return 'ok';
+  if (parsed.ok !== false) return 'malformed-output';
+  const error = parsed.error;
+  const code = typeof error === 'object' && error !== null
+    ? Reflect.get(error, 'code')
+    : undefined;
+  return typeof code === 'string' && publicJqErrorCodes.has(code)
+    ? code
+    : 'tool-error';
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(text);
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function sumUsage(runs: Stage2bPublicRun[]): ModelUsage {
