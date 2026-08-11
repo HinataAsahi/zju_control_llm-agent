@@ -201,7 +201,7 @@ unset DEEPSEEK_API_KEY
 npm run experiment:stage2b -- plan --repetitions 2
 ```
 
-`plan` 固定展开 T2、T7 与三种条件的笛卡尔积，`--repetitions` 接受 `1..100` 的整数，默认为 1。它不读取 API 密钥、不连接 MCP、不会创建本地运行记录，也不会产生费用。输出中的 `totalRuns` 是计划实验数；`upperBounds.modelRequests` 和 `upperBounds.toolCalls` 分别按每次实验最多 5 轮、4 次工具调用计算，是理论安全上限而不是实际用量或费用预测。
+`plan` 固定展开 T2、T7 与三种条件的笛卡尔积，`--repetitions` 接受 `1..100` 的整数，默认为 1。它不读取 API 密钥、不连接 MCP、不会创建本地运行记录，也不会产生费用。新计划固定 `sampling.temperature: 0`，减少条件对比中的随机性；输出中的 `totalRuns` 是计划实验数，`upperBounds.modelRequests` 和 `upperBounds.toolCalls` 分别按每次实验最多 5 轮、4 次工具调用计算，是理论安全上限而不是实际用量或费用预测。
 
 确认规模后，我可以把相同计划冻结为一个本地批次清单：
 
@@ -209,7 +209,7 @@ npm run experiment:stage2b -- plan --repetitions 2
 npm run experiment:stage2b -- prepare --repetitions 2
 ```
 
-`prepare` 同样不读取密钥、不连接模型或 MCP，也不会执行实验。它在 `.experiment-runs/stage-2b/batches/<batch-id>/manifest.json` 保存模型配置、运行限制和稳定的 `runKey`，所有实验项初始为 `pending`。批次目录权限为 `0700`，清单文件为 `0600`；清单和后续状态仍属于本地实验记录，不会提交到 GitHub。执行阶段将复用这份清单，并让每个条目依次经过 `pending`、`running` 和终态，以支持中断后的断点恢复。
+`prepare` 同样不读取密钥、不连接模型或 MCP，也不会执行实验。它在 `.experiment-runs/stage-2b/batches/<batch-id>/manifest.json` 保存模型配置、采样温度、运行限制和稳定的 `runKey`，所有实验项初始为 `pending`。批次目录权限为 `0700`，清单文件为 `0600`；清单和后续状态仍属于本地实验记录，不会提交到 GitHub。执行阶段将复用这份清单，并让每个条目依次经过 `pending`、`running` 和终态，以支持中断后的断点恢复。旧清单没有采样字段时会被解释为 `temperature: null`，继续省略请求参数并使用供应商默认值，不会伪装成温度 0 实验。
 
 准备好 API 密钥后，我可以只执行指定批次中的第一个 `pending` 条目：
 
@@ -219,7 +219,7 @@ npm run experiment:stage2b -- run-next --batch <batch-id>
 
 `run-next` 会产生 DeepSeek API 费用。它每次最多处理一个条目，并在读取密钥和调用 API 前把该条目原子更新为 `running`，同时预分配 `recordRunId`；运行结束后先保存标准 Stage 2B `record.json`，再更新清单终态。模型答案错误属于有效观察，记录为 `completed` 并保留 `taskSuccess: false`；基础设施、协议、模型输出格式或限制错误记录为 `failed`。两种终态都不会被下一次 `run-next` 自动重试。
 
-每次 `run-next` 启动时会先对账。如果清单存在 `running` 条目且对应记录已经落盘，它只修复清单并返回 `reconciled`，不会读取密钥或继续执行下一个条目；如果记录尚不存在，它返回 `blocked-by-running`，避免无法判断前一次请求结果时重复付费。当前版本仍不支持对同一批次并发运行多个 `run-next`，也不会自动重置没有记录的 `running` 条目。
+每次 `run-next` 启动时会先对账。如果清单存在 `running` 条目且对应记录已经落盘，它只修复清单并返回 `reconciled`，不会读取密钥或继续执行下一个条目；如果记录尚不存在，它返回 `blocked-by-running`，避免无法判断前一次请求结果时重复付费。领取任务时使用批次目录内的短时原子锁串行化清单事务；同一批次的并发领取只有一个能成功，其余调用会在读取密钥和请求模型前被拒绝。锁不包围模型请求，因此不会因一次付费调用持续占用；当前版本仍不会自动重置没有记录的 `running` 条目。
 
 ## 项目结构
 
@@ -240,4 +240,4 @@ docs/learning-notes/             前期学习材料
 
 ## 下一步
 
-Stage 2B 已完成四类 Explicit 代表路径、T2/T7 的 Description/Skill 真实单次对比，以及计划预览、私有批次清单、单条顺序执行和中断后的记录对账。下一步将加入同一批次的并发保护和随机性参数记录，再逐项执行冻结的批次，随后生成脱敏的结构化汇总与带不确定性说明的统计报告。
+Stage 2B 已完成四类 Explicit 代表路径、T2/T7 的 Description/Skill 真实单次对比，以及计划预览、私有批次清单、并发领取保护、单条顺序执行、中断对账和采样温度记录。下一步将逐项执行冻结的批次，先检查每次真实运行的记录质量，再生成脱敏的结构化汇总与带不确定性说明的统计报告。
