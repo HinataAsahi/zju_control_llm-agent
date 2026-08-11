@@ -7,7 +7,7 @@ import type {
   AgentRunStatus
 } from '../agent/agent-loop.js';
 import type { ModelHistoryItem, ModelUsage } from '../agent/model-client.js';
-import type { ExperimentAnswer } from './schema.js';
+import type { ExperimentAnswer, ExperimentCondition } from './schema.js';
 
 export type Stage2bToolEvent = Extract<
   ModelHistoryItem,
@@ -24,7 +24,7 @@ export interface Stage2bRecord {
   model: 'deepseek-v4-flash';
   thinking: 'none';
   taskId: Stage2bTaskId;
-  condition: 'explicit';
+  condition: ExperimentCondition;
   status: AgentRunStatus;
   taskSuccess: boolean | null;
   limits: AgentLimits;

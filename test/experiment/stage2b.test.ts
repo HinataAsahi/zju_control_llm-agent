@@ -195,15 +195,90 @@ test('runs representative file, recovery, and missing-file tasks through real MC
   }
 });
 
-test('accepts smoke for the supported representative task set', () => {
-  assert.deepEqual(parseStage2bArgs(['smoke']), { mode: 'smoke', taskId: 'T1' });
-  for (const taskId of ['T1', 'T2', 'T6', 'T7'] as const) {
-    assert.deepEqual(parseStage2bArgs(['smoke', '--task', taskId]), { mode: 'smoke', taskId });
+test('keeps description and skill condition inputs isolated', async t => {
+  const firstRequests = new Map<'description' | 'skill', ModelTurnRequest>();
+  for (const condition of ['description', 'skill'] as const) {
+    await t.test(condition, async t => {
+      const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
+      t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+      await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+      const model = new ScriptedModel([
+        toolTurn('call-t2', '.users[] | select(.active) | .name', {
+          type: 'file', path: 'users.json'
+        }),
+        finalTurn(['Alice', 'Carol', 'Dave'], 'Read active users from the file.')
+      ]);
+
+      const record = await runStage2bSmoke({
+        repositoryRoot,
+        taskId: 'T2',
+        condition,
+        apiKey: 'offline-test-key',
+        dependencies: {
+          createModelClient: () => model,
+          connectTools: options => McpToolBridge.connect({
+            ...options,
+            serverEntrypoint: resolve('dist/src/mcp/server.js')
+          })
+        }
+      });
+
+      const request = model.requests[0];
+      assert.ok(request);
+      firstRequests.set(condition, request);
+      assert.equal(record.condition, condition);
+      assert.match(record.runId, new RegExp(`^stage2b-T2-${condition}-`));
+      assert.equal(record.taskSuccess, true);
+      assert.doesNotMatch(request?.history[0]?.type === 'message'
+        ? request.history[0].content
+        : '', /Use the `jq_query` tool/);
+      if (condition === 'skill') {
+        assert.match(request?.instructions ?? '', /Reference skill: jq-query/);
+        assert.match(request?.instructions ?? '', /# jq Query/);
+        assert.match(request?.instructions ?? '', /JQ_SYNTAX_ERROR/);
+      } else {
+        assert.doesNotMatch(request?.instructions ?? '', /Reference skill|# jq Query|JQ_SYNTAX_ERROR/);
+      }
+    });
   }
+
+  const description = firstRequests.get('description');
+  const skill = firstRequests.get('skill');
+  assert.ok(description);
+  assert.ok(skill);
+  assert.deepEqual(skill.history, description.history);
+  assert.deepEqual(skill.tools, description.tools);
+  assert.deepEqual(skill.outputSchema, description.outputSchema);
+});
+
+test('accepts smoke for the supported representative task set', () => {
+  assert.deepEqual(parseStage2bArgs(['smoke']), {
+    mode: 'smoke', taskId: 'T1', condition: 'explicit'
+  });
+  for (const taskId of ['T1', 'T2', 'T6', 'T7'] as const) {
+    assert.deepEqual(parseStage2bArgs(['smoke', '--task', taskId]), {
+      mode: 'smoke', taskId, condition: 'explicit'
+    });
+  }
+  for (const condition of ['explicit', 'description', 'skill'] as const) {
+    assert.deepEqual(parseStage2bArgs(['smoke', '--condition', condition]), {
+      mode: 'smoke', taskId: 'T1', condition
+    });
+  }
+  assert.deepEqual(
+    parseStage2bArgs(['smoke', '--condition', 'skill', '--task', 'T7']),
+    { mode: 'smoke', taskId: 'T7', condition: 'skill' }
+  );
   assert.throws(() => parseStage2bArgs([]), /smoke/);
   assert.throws(() => parseStage2bArgs(['smoke', '--extra']), /smoke/);
   assert.throws(() => parseStage2bArgs(['smoke', '--task']), /task/i);
   assert.throws(() => parseStage2bArgs(['smoke', '--task', 'T3']), /task/i);
+  assert.throws(() => parseStage2bArgs(['smoke', '--condition']), /condition/i);
+  assert.throws(() => parseStage2bArgs(['smoke', '--condition', 'unknown']), /condition/i);
+  assert.throws(
+    () => parseStage2bArgs(['smoke', '--condition', 'skill', '--condition', 'description']),
+    /condition/i
+  );
   assert.throws(() => parseStage2bArgs(['formal']), /smoke/);
 });
 
@@ -298,13 +373,13 @@ test('main records a safe setup failure when the API key is missing', async t =>
   assert.doesNotMatch(JSON.stringify(record), /DEEPSEEK_API_KEY|must not be reached/);
 });
 
-test('main routes the selected task into the record and summary', async t => {
+test('main routes the selected task and condition into the record and summary', async t => {
   const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
   await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
   let output = '';
 
-  const exitCode = await main(['smoke', '--task', 'T6'], {
+  const exitCode = await main(['smoke', '--task', 'T6', '--condition', 'description'], {
     repositoryRoot,
     env: { DEEPSEEK_API_KEY: 'offline-test-key' },
     writeOutput: text => { output += text; },
@@ -321,10 +396,14 @@ test('main routes the selected task into the record and summary', async t => {
   });
 
   assert.equal(exitCode, 0);
-  const summary = JSON.parse(output) as { taskId: string; recordPath: string };
+  const summary = JSON.parse(output) as { taskId: string; condition: string; recordPath: string };
   assert.equal(summary.taskId, 'T6');
-  const record = JSON.parse(await readFile(summary.recordPath, 'utf8')) as { taskId: string };
+  assert.equal(summary.condition, 'description');
+  const record = JSON.parse(await readFile(summary.recordPath, 'utf8')) as {
+    taskId: string; condition: string;
+  };
   assert.equal(record.taskId, 'T6');
+  assert.equal(record.condition, 'description');
 });
 
 test('accepts one nested answer in a fenced provider wrapper', async t => {

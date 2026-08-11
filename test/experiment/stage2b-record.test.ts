@@ -79,6 +79,20 @@ test('accepts every Stage 2B representative task ID', async t => {
   }
 });
 
+test('accepts every Stage 2B experiment condition', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'stage2b-record-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  for (const condition of ['explicit', 'description', 'skill'] as const) {
+    const value: Stage2bRecord = {
+      ...record(`stage2b-T1-${condition}-test`),
+      condition
+    };
+    const path = await writeStage2bRecord(root, value);
+    assert.equal((JSON.parse(await readFile(path, 'utf8')) as Stage2bRecord).condition, condition);
+  }
+});
+
 test('atomically replaces the same record without leaving temporary files', async t => {
   const root = await mkdtemp(join(tmpdir(), 'stage2b-record-'));
   t.after(() => rm(root, { recursive: true, force: true }));

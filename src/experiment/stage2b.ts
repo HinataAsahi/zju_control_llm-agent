@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   runAgent,
@@ -21,6 +21,7 @@ import {
   answerMatchesExpected,
   diagnoseExperimentAnswer,
   parseExperimentAnswerText,
+  type ExperimentCondition,
   type ExperimentTask
 } from './schema.js';
 import {
@@ -41,6 +42,7 @@ export interface Stage2bDependencies {
 export interface Stage2bCommand {
   mode: 'smoke';
   taskId: Stage2bTaskId;
+  condition: ExperimentCondition;
 }
 
 export type { Stage2bTaskId } from './stage2b-record.js';
@@ -67,20 +69,36 @@ const defaultDependencies: Stage2bDependencies = {
 };
 
 const supportedTaskIds: readonly Stage2bTaskId[] = ['T1', 'T2', 'T6', 'T7'];
+const supportedConditions: readonly ExperimentCondition[] = ['explicit', 'description', 'skill'];
+const stage2bHelp = 'Stage 2B supports: smoke [--task T1|T2|T6|T7] [--condition explicit|description|skill]';
 
 export function parseStage2bArgs(argv: string[]): Stage2bCommand {
-  if (argv.length === 1 && argv[0] === 'smoke') {
-    return { mode: 'smoke', taskId: 'T1' };
+  if (argv[0] !== 'smoke') throw new Error(stage2bHelp);
+  let taskId: Stage2bTaskId = 'T1';
+  let condition: ExperimentCondition = 'explicit';
+  let hasTask = false;
+  let hasCondition = false;
+
+  for (let index = 1; index < argv.length; index += 2) {
+    const flag = argv[index];
+    const value = argv[index + 1];
+    if (flag === '--task') {
+      if (hasTask || !isSupportedTaskId(value)) throw new Error(`Invalid task. ${stage2bHelp}`);
+      taskId = value;
+      hasTask = true;
+      continue;
+    }
+    if (flag === '--condition') {
+      if (hasCondition || !isSupportedCondition(value)) {
+        throw new Error(`Invalid condition. ${stage2bHelp}`);
+      }
+      condition = value;
+      hasCondition = true;
+      continue;
+    }
+    throw new Error(stage2bHelp);
   }
-  if (
-    argv.length === 3
-    && argv[0] === 'smoke'
-    && argv[1] === '--task'
-    && isSupportedTaskId(argv[2])
-  ) {
-    return { mode: 'smoke', taskId: argv[2] };
-  }
-  throw new Error('Stage 2B supports: smoke [--task T1|T2|T6|T7]');
+  return { mode: 'smoke', taskId, condition };
 }
 
 export function stage2bExitCode(
@@ -92,22 +110,25 @@ export function stage2bExitCode(
 export async function runStage2bSmoke(options: {
   repositoryRoot: string;
   taskId?: Stage2bTaskId;
+  condition?: ExperimentCondition;
   apiKey?: string;
   dependencies?: Partial<Stage2bDependencies>;
 }): Promise<Stage2bRecord> {
   const repositoryRoot = resolve(options.repositoryRoot);
   const taskId = options.taskId ?? 'T1';
+  const condition = options.condition ?? 'explicit';
   const dependencies = { ...defaultDependencies, ...options.dependencies };
   const experimentRoot = resolve(repositoryRoot, 'experiments/stage-2a');
   const runRoot = resolve(repositoryRoot, '.experiment-runs/stage-2b');
   const serverEntrypoint = resolve(repositoryRoot, 'dist/src/mcp/server.js');
   const startedAt = dependencies.now();
-  const runId = createRunId(taskId, startedAt);
+  const runId = createRunId(taskId, condition, startedAt);
   let setup: {
     task: ExperimentTask;
     workspace: PreparedWorkspace;
     outputSchema: Record<string, unknown>;
     client: ModelTurnClient;
+    instructions: string;
   };
   try {
     const apiKey = requireDeepSeekApiKey({ DEEPSEEK_API_KEY: options.apiKey });
@@ -116,23 +137,26 @@ export async function runStage2bSmoke(options: {
     if (!task) throw new Error(`Stage 2B requires task ${taskId}.`);
     const workspace = await prepareWorkspace({
       task,
-      condition: 'explicit',
+      condition,
       experimentRoot,
       runRoot,
       runId
     });
     const outputSchemaValue: unknown = JSON.parse(await readFile(workspace.outputSchemaPath, 'utf8'));
     if (!isRecord(outputSchemaValue)) throw new Error('Final answer schema must be a JSON object.');
+    const instructions = await instructionsForCondition(workspace, condition);
     setup = {
       task,
       workspace,
       outputSchema: outputSchemaValue,
-      client: dependencies.createModelClient(apiKey)
+      client: dependencies.createModelClient(apiKey),
+      instructions
     };
   } catch {
     return infrastructureRecord({
       runId,
       taskId,
+      condition,
       startedAt,
       finishedAt: dependencies.now(),
       category: 'configuration',
@@ -150,6 +174,7 @@ export async function runStage2bSmoke(options: {
     return infrastructureRecord({
       runId,
       taskId,
+      condition,
       startedAt,
       finishedAt: dependencies.now(),
       category: 'mcp',
@@ -159,7 +184,7 @@ export async function runStage2bSmoke(options: {
   const result = await runAgent({
     client: setup.client,
     tools,
-    instructions: STAGE2B_INSTRUCTIONS,
+    instructions: setup.instructions,
     input: setup.workspace.prompt,
     outputSchema: setup.outputSchema,
     parseFinalAnswer: parseExperimentAnswerText,
@@ -177,7 +202,7 @@ export async function runStage2bSmoke(options: {
     model: DEEPSEEK_MODEL,
     thinking: 'none',
     taskId,
-    condition: 'explicit',
+    condition,
     status: result.status,
     taskSuccess: finalAnswer
       ? answerMatchesExpected(finalAnswer, setup.task.expected)
@@ -196,6 +221,7 @@ export async function runStage2bSmoke(options: {
 function infrastructureRecord(options: {
   runId: string;
   taskId: Stage2bTaskId;
+  condition: ExperimentCondition;
   startedAt: Date;
   finishedAt: Date;
   category: 'configuration' | 'mcp';
@@ -209,7 +235,7 @@ function infrastructureRecord(options: {
     model: DEEPSEEK_MODEL,
     thinking: 'none',
     taskId: options.taskId,
-    condition: 'explicit',
+    condition: options.condition,
     status: 'infrastructure-error',
     taskSuccess: null,
     limits: { ...STAGE2B_LIMITS },
@@ -238,6 +264,7 @@ export async function main(
   const record = await runStage2bSmoke({
     repositoryRoot,
     taskId: command.taskId,
+    condition: command.condition,
     ...(apiKey !== undefined ? { apiKey } : {}),
     ...(options.dependencies ? { dependencies: options.dependencies } : {})
   });
@@ -245,6 +272,7 @@ export async function main(
   const output = `${JSON.stringify({
     runId: record.runId,
     taskId: record.taskId,
+    condition: record.condition,
     status: record.status,
     taskSuccess: record.taskSuccess,
     turns: record.turns,
@@ -256,13 +284,38 @@ export async function main(
   return stage2bExitCode(record);
 }
 
-function createRunId(taskId: Stage2bTaskId, date: Date): string {
+function createRunId(
+  taskId: Stage2bTaskId,
+  condition: ExperimentCondition,
+  date: Date
+): string {
   const timestamp = date.toISOString().replace(/[-:.]/g, '').replace('Z', 'Z');
-  return `stage2b-${taskId}-explicit-${timestamp}-${randomBytes(4).toString('hex')}`;
+  return `stage2b-${taskId}-${condition}-${timestamp}-${randomBytes(4).toString('hex')}`;
 }
 
 function isSupportedTaskId(value: string | undefined): value is Stage2bTaskId {
   return supportedTaskIds.some(taskId => taskId === value);
+}
+
+function isSupportedCondition(value: string | undefined): value is ExperimentCondition {
+  return supportedConditions.some(condition => condition === value);
+}
+
+async function instructionsForCondition(
+  workspace: PreparedWorkspace,
+  condition: ExperimentCondition
+): Promise<string> {
+  if (condition !== 'skill') return STAGE2B_INSTRUCTIONS;
+  const skill = await readFile(
+    join(workspace.path, '.agents', 'skills', 'jq-query', 'SKILL.md'),
+    'utf8'
+  );
+  return [
+    STAGE2B_INSTRUCTIONS,
+    '',
+    'Reference skill: jq-query',
+    skill.trim()
+  ].join('\n');
 }
 
 function isToolEvent(item: unknown): item is Stage2bToolEvent {
