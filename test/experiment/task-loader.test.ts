@@ -33,6 +33,21 @@ test('loads all stage 2A tasks in numeric ID order with known expected answers',
   assert.deepEqual(tasks.find(task => task.id === 'T6')?.expected, { status: 'cannot_complete', answer: null });
 });
 
+test('loads isolated Stage 2B diagnostic tasks without changing Stage 2A', async () => {
+  const stage2a = await loadTasks(resolve('experiments/stage-2a'));
+  const stage2b = await loadTasks(resolve('experiments/stage-2b'));
+
+  assert.deepEqual(stage2a.map(task => task.id), ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8']);
+  assert.deepEqual(stage2b.map(task => task.id), ['T9', 'T10', 'T11']);
+  assert.equal(stage2b[0]?.kind, 'negative');
+  assert.equal(stage2b[0]?.expected.answer, 2);
+  assert.deepEqual(stage2b[1]?.expected.answer, [
+    { region: 'east', revenue: 245 },
+    { region: 'north', revenue: 180 }
+  ]);
+  assert.deepEqual(stage2b[2]?.expected.answer, ['api', 'search']);
+});
+
 test('defines condition-neutral and explicit prompt assets without disclosing a skill', async () => {
   const promptDirectory = resolve('experiments/stage-2a/prompts');
   const filenames = (await readdir(promptDirectory)).sort();

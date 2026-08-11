@@ -13,6 +13,7 @@ export interface PrepareWorkspaceOptions {
   task: ExperimentTask;
   condition: ExperimentCondition;
   experimentRoot: string;
+  taskRoot?: string;
   runRoot: string;
   runId: string;
 }
@@ -40,7 +41,9 @@ async function prepareReservedWorkspace(
   workspacePath: string
 ): Promise<PreparedWorkspace> {
   const experimentRoot = resolve(options.experimentRoot);
+  const taskRoot = resolve(options.taskRoot ?? options.experimentRoot);
   await validateDirectory(experimentRoot, 'experiment root');
+  await validateDirectory(taskRoot, 'task root');
 
   const workspacesDirectory = await prepareWorkspacesDirectory(resolvedRunRoot);
   await assertPathDoesNotExist(workspacePath);
@@ -52,9 +55,9 @@ async function prepareReservedWorkspace(
 
     for (const inputFile of options.task.inputFiles) {
       validateFixturePath(inputFile);
-      const sourcePath = resolve(experimentRoot, 'tasks', inputFile);
+      const sourcePath = resolve(taskRoot, 'tasks', inputFile);
       const destinationPath = join(temporaryPath, ...inputFile.slice(fixturePrefix.length).split('/'));
-      await copyRegularFile(experimentRoot, sourcePath, destinationPath);
+      await copyRegularFile(taskRoot, sourcePath, destinationPath);
     }
 
     if (options.condition === 'skill') {
@@ -74,7 +77,7 @@ async function prepareReservedWorkspace(
 
     const promptParts = [await readRegularText(experimentRoot, join(experimentRoot, 'prompts', 'common.txt'))];
     if (options.condition === 'explicit') {
-      const explicitPrompt = options.task.id === 'T8' ? 'explicit-negative.txt' : 'explicit-applicable.txt';
+      const explicitPrompt = options.task.kind === 'negative' ? 'explicit-negative.txt' : 'explicit-applicable.txt';
       promptParts.push(await readRegularText(experimentRoot, join(experimentRoot, 'prompts', explicitPrompt)));
     }
     promptParts.push(options.task.prompt);

@@ -1,0 +1,1 @@
+{"id":"T9","kind":"negative","prompt":"Count the lines whose level is ERROR in the plain-text log below.\n\nINFO boot complete\nERROR cache unavailable\nWARN retrying\nERROR upstream timeout\nINFO shutdown complete","inputFiles":[],"expected":{"status":"completed","answer":2}}

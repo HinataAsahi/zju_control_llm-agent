@@ -123,6 +123,59 @@ test('adds the applicable explicit prompt for T1-T7 and the negative prompt for 
   assert.equal(prepared.prompt, [common, negative, task.prompt].map(part => part.replace(/\r\n?/g, '\n').replace(/\n+$/g, '')).join('\n'));
 });
 
+test('prepares workspaces from a separate Stage 2B task root', async t => {
+  const runRoot = await setup(t);
+  const taskRoot = resolve('experiments/stage-2b');
+  const tasks = await loadTasks(taskRoot);
+  const negative = await readFile(join(experimentRoot, 'prompts/explicit-negative.txt'), 'utf8');
+
+  const diagnosticTask = tasks.find(task => task.id === 'T9');
+  assert.ok(diagnosticTask);
+  const t9 = await prepareWorkspace({
+    task: diagnosticTask,
+    condition: 'explicit',
+    experimentRoot,
+    taskRoot,
+    runRoot,
+    runId: 'stage2b-T9-explicit-fixture'
+  });
+  assert.ok(t9.prompt.includes(negative.trim()));
+
+  const t10Task = tasks.find(task => task.id === 'T10');
+  assert.ok(t10Task);
+  const t10 = await prepareWorkspace({
+    task: t10Task,
+    condition: 'description',
+    experimentRoot,
+    taskRoot,
+    runRoot,
+    runId: 'stage2b-T10-fixture'
+  });
+  assert.equal(
+    await readFile(join(t10.path, 'shipments.json'), 'utf8'),
+    await readFile(join(taskRoot, 'tasks/fixtures/shipments.json'), 'utf8')
+  );
+
+  const t11Task = tasks.find(task => task.id === 'T11');
+  assert.ok(t11Task);
+  const t11 = await prepareWorkspace({
+    task: t11Task,
+    condition: 'skill',
+    experimentRoot,
+    taskRoot,
+    runRoot,
+    runId: 'stage2b-T11-fixture'
+  });
+  assert.equal(
+    await readFile(join(t11.path, 'metrics.json'), 'utf8'),
+    await readFile(join(taskRoot, 'tasks/fixtures/metrics.json'), 'utf8')
+  );
+  assert.equal(
+    await readFile(join(t11.path, '.agents/skills/jq-query/SKILL.md'), 'utf8'),
+    await readFile(join(experimentRoot, 'reference-skill/SKILL.md'), 'utf8')
+  );
+});
+
 test('rejects unsafe run IDs', async t => {
   const runRoot = await setup(t);
   const task = (await loadTasks(experimentRoot)).find(candidate => candidate.id === 'T1');

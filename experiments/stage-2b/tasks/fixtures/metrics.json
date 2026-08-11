@@ -1,0 +1,1 @@
+{"payload":{"series":[{"service":"api","samples":[{"at":1,"latencyMs":180},{"at":2,"latencyMs":240}]},{"service":"worker","samples":[{"at":1,"latencyMs":260},{"at":2,"latencyMs":190}]},{"service":"search","samples":[{"at":1,"latencyMs":210},{"at":2,"latencyMs":230}]}]}}
