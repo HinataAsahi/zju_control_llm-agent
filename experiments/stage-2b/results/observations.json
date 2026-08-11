@@ -1,0 +1,286 @@
+{
+  "version": 1,
+  "scope": "descriptive-single-observation",
+  "batches": [
+    {
+      "role": "pilot",
+      "batchId": "stage2b-batch-20260811T072559965Z-a2cd7ac2",
+      "createdAt": "2026-08-11T07:25:59.965Z",
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "thinking": "none",
+      "sampling": {
+        "temperature": null
+      },
+      "repetitions": 1,
+      "limits": {
+        "maxTurns": 5,
+        "maxToolCalls": 4,
+        "requestTimeoutMs": 60000,
+        "totalTimeoutMs": 120000
+      },
+      "counts": {
+        "total": 6,
+        "completed": 2,
+        "failed": 4,
+        "taskSuccess": 2,
+        "recoverySuccess": 1,
+        "recoveryApplicable": 1,
+        "limitExceeded": 4
+      },
+      "usage": {
+        "inputTokens": 27077,
+        "cachedInputTokens": 23936,
+        "outputTokens": 2219,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 29296
+      },
+      "turns": 27,
+      "toolCalls": 22,
+      "runs": [
+        {
+          "taskId": "T2",
+          "condition": "explicit",
+          "repetition": 1,
+          "status": "completed",
+          "taskSuccess": true,
+          "recoverySuccess": null,
+          "turns": 3,
+          "toolCalls": 2,
+          "usage": {
+            "inputTokens": 2172,
+            "cachedInputTokens": 1920,
+            "outputTokens": 182,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 2354
+          }
+        },
+        {
+          "taskId": "T2",
+          "condition": "description",
+          "repetition": 1,
+          "status": "limit-exceeded",
+          "taskSuccess": null,
+          "recoverySuccess": null,
+          "turns": 5,
+          "toolCalls": 4,
+          "usage": {
+            "inputTokens": 4190,
+            "cachedInputTokens": 3584,
+            "outputTokens": 453,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 4643
+          }
+        },
+        {
+          "taskId": "T2",
+          "condition": "skill",
+          "repetition": 1,
+          "status": "limit-exceeded",
+          "taskSuccess": null,
+          "recoverySuccess": null,
+          "turns": 5,
+          "toolCalls": 4,
+          "usage": {
+            "inputTokens": 6257,
+            "cachedInputTokens": 5760,
+            "outputTokens": 390,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 6647
+          }
+        },
+        {
+          "taskId": "T7",
+          "condition": "explicit",
+          "repetition": 1,
+          "status": "completed",
+          "taskSuccess": true,
+          "recoverySuccess": true,
+          "turns": 5,
+          "toolCalls": 4,
+          "usage": {
+            "inputTokens": 4429,
+            "cachedInputTokens": 3840,
+            "outputTokens": 374,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 4803
+          }
+        },
+        {
+          "taskId": "T7",
+          "condition": "description",
+          "repetition": 1,
+          "status": "limit-exceeded",
+          "taskSuccess": null,
+          "recoverySuccess": null,
+          "turns": 4,
+          "toolCalls": 4,
+          "usage": {
+            "inputTokens": 3586,
+            "cachedInputTokens": 2944,
+            "outputTokens": 421,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 4007
+          }
+        },
+        {
+          "taskId": "T7",
+          "condition": "skill",
+          "repetition": 1,
+          "status": "limit-exceeded",
+          "taskSuccess": null,
+          "recoverySuccess": null,
+          "turns": 5,
+          "toolCalls": 4,
+          "usage": {
+            "inputTokens": 6443,
+            "cachedInputTokens": 5888,
+            "outputTokens": 399,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 6842
+          }
+        }
+      ]
+    },
+    {
+      "role": "calibrated",
+      "batchId": "stage2b-batch-20260811T082039968Z-f08fd44f",
+      "createdAt": "2026-08-11T08:20:39.968Z",
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "thinking": "none",
+      "sampling": {
+        "temperature": 0
+      },
+      "repetitions": 1,
+      "limits": {
+        "maxTurns": 6,
+        "maxToolCalls": 5,
+        "requestTimeoutMs": 60000,
+        "totalTimeoutMs": 120000
+      },
+      "counts": {
+        "total": 6,
+        "completed": 6,
+        "failed": 0,
+        "taskSuccess": 6,
+        "recoverySuccess": 3,
+        "recoveryApplicable": 3,
+        "limitExceeded": 0
+      },
+      "usage": {
+        "inputTokens": 26349,
+        "cachedInputTokens": 23936,
+        "outputTokens": 1904,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 28253
+      },
+      "turns": 27,
+      "toolCalls": 21,
+      "runs": [
+        {
+          "taskId": "T2",
+          "condition": "explicit",
+          "repetition": 1,
+          "status": "completed",
+          "taskSuccess": true,
+          "recoverySuccess": null,
+          "turns": 4,
+          "toolCalls": 3,
+          "usage": {
+            "inputTokens": 3188,
+            "cachedInputTokens": 2816,
+            "outputTokens": 271,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 3459
+          }
+        },
+        {
+          "taskId": "T2",
+          "condition": "description",
+          "repetition": 1,
+          "status": "completed",
+          "taskSuccess": true,
+          "recoverySuccess": null,
+          "turns": 4,
+          "toolCalls": 3,
+          "usage": {
+            "inputTokens": 3136,
+            "cachedInputTokens": 2816,
+            "outputTokens": 270,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 3406
+          }
+        },
+        {
+          "taskId": "T2",
+          "condition": "skill",
+          "repetition": 1,
+          "status": "completed",
+          "taskSuccess": true,
+          "recoverySuccess": null,
+          "turns": 4,
+          "toolCalls": 3,
+          "usage": {
+            "inputTokens": 4800,
+            "cachedInputTokens": 4352,
+            "outputTokens": 275,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 5075
+          }
+        },
+        {
+          "taskId": "T7",
+          "condition": "explicit",
+          "repetition": 1,
+          "status": "completed",
+          "taskSuccess": true,
+          "recoverySuccess": true,
+          "turns": 5,
+          "toolCalls": 4,
+          "usage": {
+            "inputTokens": 4425,
+            "cachedInputTokens": 3968,
+            "outputTokens": 348,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 4773
+          }
+        },
+        {
+          "taskId": "T7",
+          "condition": "description",
+          "repetition": 1,
+          "status": "completed",
+          "taskSuccess": true,
+          "recoverySuccess": true,
+          "turns": 5,
+          "toolCalls": 4,
+          "usage": {
+            "inputTokens": 4360,
+            "cachedInputTokens": 3840,
+            "outputTokens": 370,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 4730
+          }
+        },
+        {
+          "taskId": "T7",
+          "condition": "skill",
+          "repetition": 1,
+          "status": "completed",
+          "taskSuccess": true,
+          "recoverySuccess": true,
+          "turns": 5,
+          "toolCalls": 4,
+          "usage": {
+            "inputTokens": 6440,
+            "cachedInputTokens": 6144,
+            "outputTokens": 370,
+            "reasoningOutputTokens": 0,
+            "totalTokens": 6810
+          }
+        }
+      ]
+    }
+  ]
+}
