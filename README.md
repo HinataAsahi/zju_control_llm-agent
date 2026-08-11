@@ -4,7 +4,7 @@
 
 一位老师联系我后，我开始通过这个个人项目了解 LLM Agent、MCP、工具调用与行为评测，并判断自己是否对这一方向感兴趣。本项目不代表我参加过任何夏令营，也不是夏令营准备项目。
 
-我的探索分成两个阶段：第一阶段先实现一个真实可用、边界明确的 `jq` MCP Server；第二阶段把它接入 Codex，观察提示方式如何影响 Agent 的工具选择、调用正确性和错误恢复。这样我先接触一线行为，再决定后续是否值得投入到自定义 API 实验执行器与更系统的重复评测中。
+我的探索目前分成三个连续步骤：Stage 1 先实现一个真实可用、边界明确的 `jq` MCP Server；Stage 2A 把它接入 Codex，观察提示方式如何影响 Agent 的工具选择、调用正确性和错误恢复；Stage 2B 再自行实现最小 API Agent Runner，把模型调用、MCP 调用、上下文回放和结果校验连接起来。这样我先接触一线行为，再逐步进入执行器内部，而不是一开始就搭建完整评测平台。
 
 ## 我完成了什么
 
@@ -46,6 +46,24 @@
 
 执行器会为每次运行创建隔离工作区，只复制该任务需要的输入文件；`Skill` 条件才会安装参考 Skill。它以只读沙箱启动 Codex，流式记录 JSONL 和 stderr，解析 MCP 调用、Shell 命令、最终答案与 Token 用量，并将模型行为错误和基础设施错误分开处理。
 
+### Stage 2B：实现最小 DeepSeek API Agent Runner
+
+在看完 Stage 2A 的轨迹后，我开始实现自己的 API Runner。当前目标不是立刻替代 Codex，也不是马上执行大规模统计实验，而是先把一次可控的“模型决策 -> MCP 调用 -> 工具结果回传 -> 最终答案校验”闭环跑通。
+
+我把实现拆成几个边界明确的组件：
+
+- 与供应商无关的 Agent 循环负责轮次、工具调用、历史回放、超时和错误分类；
+- `McpToolBridge` 通过 stdio 连接仓库中的 `jq` MCP Server，并把发现到的工具转换为模型可用的函数工具；
+- DeepSeek 适配器使用官方 OpenAI SDK 7.4.0，指向 `https://api.deepseek.com` 的 Responses API；
+- Stage 2B 入口准备 T1 的隔离工作区，运行一次 `Explicit` 条件烟雾实验，并写入本地记录；
+- 本地 Schema 与 Zod 负责最终答案校验，供应商返回的内容不会未经验证直接成为实验结果。
+
+当前真实运行固定使用 `deepseek-v4-flash`，关闭思考模式和 SDK 自动重试，并设置以下边界：最多 4 轮、最多 4 次 MCP 调用、单次模型请求 60 秒、整次运行 120 秒。只要一轮同时出现文本和函数调用，我会优先执行工具并丢弃该轮的未完成文本，等待后续纯文本终局。
+
+联调过程中，我发现 DeepSeek 的 `json_schema` 请求虽然能被接口接受，但工具调用后的最终输出并不稳定，曾出现 Markdown 围栏、块外说明、额外字段、混合工具调用，甚至疑似复述 Schema。最终我改用 DeepSeek 官方 JSON Output 指南建议的 `json_object` 模式，在提示中给出不包含任务答案的三字段 JSON 示例，再由本地严格校验兜底。解析边界仍拒绝不合法 JSON、多个候选对象和多个答案对象。
+
+最终 T1 真实烟雾运行通过：模型用 2 轮完成 1 次 `jq_query` 调用，返回答案 `3`。本次输入为 1325 Token，其中缓存命中 640 Token；输出为 144 Token，总计 1469 Token，运行约 3.4 秒。这个结果只证明最小闭环在当前任务和配置下可用，不代表其他任务、模型或重复运行会有相同行为。
+
 ## 本次观察结果
 
 我先按固定阶梯校准模型。较低配置在混合路径或错误恢复任务上没有全部达到门槛，最终选择了 `gpt-5.6-terra / medium`。正式运行使用 Codex CLI 0.147.0，24/24 条轨迹均有效且答案正确，没有基础设施失败或待人工复核项。
@@ -68,6 +86,8 @@
 
 原始 JSONL、stderr、临时工作区和校准记录位于本机 `.experiment-runs/`，不会提交到 GitHub。
 
+Stage 2B 的工作区和运行记录同样位于 `.experiment-runs/stage-2b/`。目录权限会收紧为 `0700`，记录文件为 `0600`；记录包含工具事件、状态、用量和脱敏诊断，但不保存 API 密钥。ChatGPT Plus 与 DeepSeek API 计费相互独立，运行 Stage 2B 前需要单独准备 `DEEPSEEK_API_KEY`。
+
 ## 环境与安装
 
 我在 Linux/WSL 环境完成了当前验证，使用以下主要版本：
@@ -75,6 +95,7 @@
 - Node.js 24 LTS；
 - jq 1.8.2，或兼容的 jq 1.8.x；
 - Codex CLI 0.147.0（仅 Stage 2A 实验需要）。
+- DeepSeek API 密钥（仅 Stage 2B 真实烟雾运行需要）。
 
 安装锁定依赖并运行完整测试：
 
@@ -138,12 +159,26 @@ npm run experiment -- report
 
 `formal` 会校验请求配置与保存的校准结果是否一致，避免无意中混用模型。正式观察按顺序执行，不能把 24 次单次观察解释为独立重复试验。
 
+### 运行 Stage 2B 烟雾实验
+
+Stage 2B 当前只支持 T1 的 `smoke` 模式。为了避免密钥进入命令历史，我会先通过隐藏输入读取密钥，再仅为当前进程传入：
+
+```bash
+read -rsp "DeepSeek API key: " DEEPSEEK_API_KEY && printf '\n'
+DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" npm run experiment:stage2b -- smoke
+unset DEEPSEEK_API_KEY
+```
+
+该命令会产生 DeepSeek API 费用。命令行只输出运行摘要，详细记录保存在已忽略的本地目录中。Stage 2B 不会自动重试失败请求，避免基础设施错误造成不可见的额外费用。
+
 ## 项目结构
 
 ```text
 src/mcp/                         jq MCP Server
-src/experiment/                  Codex 实验执行、解析与评测
+src/agent/                       Agent 循环、DeepSeek 适配器与 MCP 桥接
+src/experiment/                  Stage 2A/2B 实验执行、解析与评测
 test/mcp/                        MCP Server 测试
+test/agent/                      Agent 循环与供应商适配测试
 test/experiment/                 实验基础设施测试
 experiments/stage-2a/tasks/      任务定义与固定输入
 experiments/stage-2a/prompts/    三种条件使用的提示材料
@@ -155,4 +190,4 @@ docs/learning-notes/             前期学习材料
 
 ## 下一步
 
-我计划在理解这批一线轨迹后，再实现自定义 API Runner。下一阶段重点不是简单增加任务数量，而是控制重复次数、随机性、可用工具和上下文，记录每次决策过程，并用置信区间等方式区分偶然行为与较稳定的条件差异。
+我已经完成了从 Codex 轨迹观察到最小自定义 API Runner 的过渡。下一步会先把 Stage 2B 从单个 T1 烟雾任务扩展到少量代表任务，验证文件输入、错误恢复和不应调用工具等路径；之后再加入重复次数、随机性控制、可恢复执行和汇总报告。只有这些边界稳定后，我才会把它演进为完整实验执行器，并用置信区间等方式区分偶然行为与较稳定的条件差异。
