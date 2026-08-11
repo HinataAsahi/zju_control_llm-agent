@@ -343,6 +343,22 @@ test('accepts the same bounded repetition count for batch preparation', () => {
   }
 });
 
+test('accepts only one safe batch ID for run-next', () => {
+  assert.deepEqual(
+    parseStage2bArgs(['run-next', '--batch', 'stage2b-batch-20260811T080000000Z-a1b2c3d4']),
+    { mode: 'run-next', batchId: 'stage2b-batch-20260811T080000000Z-a1b2c3d4' }
+  );
+  for (const argv of [
+    ['run-next'],
+    ['run-next', '--batch'],
+    ['run-next', '--batch', '../escape'],
+    ['run-next', '--batch', 'other-batch'],
+    ['run-next', '--unknown', 'stage2b-batch-safe']
+  ]) {
+    assert.throws(() => parseStage2bArgs(argv), /run-next|batch/i);
+  }
+});
+
 test('renders the T2 and T7 condition matrix without credentials or side effects', async t => {
   const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-plan-'));
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
@@ -513,6 +529,145 @@ test('refuses to prepare a batch through a symlinked batches directory', async t
     dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
   }), /unsafe.*batch/i);
   assert.deepEqual(await readdir(outside), []);
+});
+
+test('run-next records one model-behavior failure as a completed observation', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-run-next-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+  let prepareOutput = '';
+  await main(['prepare'], {
+    repositoryRoot,
+    writeOutput: text => { prepareOutput += text; },
+    dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
+  });
+  const { batchId, manifestPath } = JSON.parse(prepareOutput) as {
+    batchId: string;
+    manifestPath: string;
+  };
+  const model = new ScriptedModel([
+    finalTurn(['incorrect'], 'Returned an incorrect answer without calling the tool.')
+  ]);
+  const times = [
+    new Date('2026-08-11T08:01:00.000Z'),
+    new Date('2026-08-11T08:01:00.100Z')
+  ];
+  let output = '';
+
+  const exitCode = await main(['run-next', '--batch', batchId], {
+    repositoryRoot,
+    env: { DEEPSEEK_API_KEY: 'offline-test-key' },
+    writeOutput: text => { output += text; },
+    dependencies: {
+      createModelClient: () => model,
+      connectTools: options => McpToolBridge.connect({
+        ...options,
+        serverEntrypoint: resolve('dist/src/mcp/server.js')
+      }),
+      now: () => times.shift() ?? new Date('2026-08-11T08:01:00.100Z')
+    }
+  });
+
+  assert.equal(exitCode, 0);
+  const summary = JSON.parse(output) as {
+    batchId: string;
+    runKey: string;
+    status: string;
+    recordRunId: string;
+    recordPath: string;
+    taskSuccess: boolean | null;
+    recoverySuccess: boolean | null;
+    remainingPending: number;
+  };
+  assert.equal(summary.batchId, batchId);
+  assert.equal(summary.runKey, 'T2-explicit-r1');
+  assert.equal(summary.status, 'completed');
+  assert.equal(summary.taskSuccess, false);
+  assert.equal(summary.recoverySuccess, null);
+  assert.equal(summary.remainingPending, 5);
+  assert.match(summary.recordRunId, /^stage2b-T2-explicit-/);
+  assert.equal((await lstat(summary.recordPath)).mode & 0o777, 0o600);
+  assert.equal(model.requests.length, 1);
+
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    runs: Array<Record<string, unknown>>;
+  };
+  assert.deepEqual(manifest.runs[0], {
+    runKey: 'T2-explicit-r1',
+    taskId: 'T2',
+    condition: 'explicit',
+    repetition: 1,
+    status: 'completed',
+    recordRunId: summary.recordRunId,
+    recordStatus: 'completed',
+    taskSuccess: false,
+    recoverySuccess: null
+  });
+  assert.equal(manifest.runs[1]?.status, 'pending');
+  assert.deepEqual(
+    (await readdir(join(manifestPath, '..'))).filter(name => name.includes('.tmp')),
+    []
+  );
+});
+
+test('run-next records a setup failure as failed without creating a model client', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-run-next-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  let prepareOutput = '';
+  await main(['prepare'], {
+    repositoryRoot,
+    writeOutput: text => { prepareOutput += text; },
+    dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
+  });
+  const { batchId, manifestPath } = JSON.parse(prepareOutput) as {
+    batchId: string;
+    manifestPath: string;
+  };
+  const times = [
+    new Date('2026-08-11T08:01:00.000Z'),
+    new Date('2026-08-11T08:01:00.025Z')
+  ];
+  let output = '';
+
+  const exitCode = await main(['run-next', '--batch', batchId], {
+    repositoryRoot,
+    env: {},
+    writeOutput: text => { output += text; },
+    dependencies: {
+      createModelClient: () => { throw new Error('missing-key run must not create a model'); },
+      connectTools: async () => { throw new Error('missing-key run must not connect tools'); },
+      now: () => times.shift() ?? new Date('2026-08-11T08:01:00.025Z')
+    }
+  });
+
+  assert.equal(exitCode, 1);
+  const summary = JSON.parse(output) as {
+    runKey: string;
+    status: string;
+    recordStatus: string;
+    remainingPending: number;
+  };
+  assert.deepEqual(summary, {
+    batchId,
+    runKey: 'T2-explicit-r1',
+    status: 'failed',
+    recordRunId: (JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      runs: Array<{ recordRunId?: string }>;
+    }).runs[0]?.recordRunId,
+    recordStatus: 'infrastructure-error',
+    taskSuccess: null,
+    recoverySuccess: null,
+    remainingPending: 5,
+    manifestPath,
+    recordPath: join(
+      repositoryRoot,
+      '.experiment-runs/stage-2b',
+      (JSON.parse(await readFile(manifestPath, 'utf8')) as {
+        runs: Array<{ recordRunId?: string }>;
+      }).runs[0]?.recordRunId ?? '',
+      'record.json'
+    )
+  });
 });
 
 test('returns a failing process code unless the smoke task completes correctly', () => {

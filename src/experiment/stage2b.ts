@@ -30,7 +30,13 @@ import {
   type Stage2bTaskId,
   type Stage2bToolEvent
 } from './stage2b-record.js';
-import { prepareStage2bBatch } from './stage2b-batch.js';
+import {
+  isStage2bBatchId,
+  nextPendingStage2bBatchRun,
+  prepareStage2bBatch,
+  readStage2bBatchManifest,
+  recordStage2bBatchRun
+} from './stage2b-batch.js';
 import {
   createStage2bPlan,
   STAGE2B_PLAN_MAX_REPETITIONS,
@@ -55,6 +61,9 @@ export type Stage2bCommand = {
 } | {
   mode: 'prepare';
   repetitions: number;
+} | {
+  mode: 'run-next';
+  batchId: string;
 };
 
 export type { Stage2bTaskId } from './stage2b-record.js';
@@ -86,13 +95,15 @@ const stage2bHelp = [
   'Stage 2B supports:',
   'smoke [--task T1|T2|T6|T7] [--condition explicit|description|skill];',
   `plan [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
-  `prepare [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}]`
+  `prepare [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
+  'run-next --batch <batch-id>'
 ].join(' ');
 
 export function parseStage2bArgs(argv: string[]): Stage2bCommand {
   if (argv[0] === 'plan' || argv[0] === 'prepare') {
     return parseRepetitionArgs(argv[0], argv.slice(1));
   }
+  if (argv[0] === 'run-next') return parseRunNextArgs(argv.slice(1));
   if (argv[0] !== 'smoke') throw new Error(stage2bHelp);
   let taskId: Stage2bTaskId = 'T1';
   let condition: ExperimentCondition = 'explicit';
@@ -303,6 +314,53 @@ export async function main(
     (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
     return 0;
   }
+  if (command.mode === 'run-next') {
+    const loaded = await readStage2bBatchManifest(repositoryRoot, command.batchId);
+    const selected = nextPendingStage2bBatchRun(loaded.manifest);
+    if (!selected) {
+      const output = `${JSON.stringify({
+        batchId: command.batchId,
+        status: 'no-pending-runs',
+        remainingPending: 0,
+        manifestPath: loaded.manifestPath
+      }, null, 2)}\n`;
+      (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
+      return 0;
+    }
+    const apiKey = (options.env ?? process.env).DEEPSEEK_API_KEY;
+    const record = await runStage2bSmoke({
+      repositoryRoot,
+      taskId: selected.taskId,
+      condition: selected.condition,
+      ...(apiKey !== undefined ? { apiKey } : {}),
+      ...(options.dependencies ? { dependencies: options.dependencies } : {})
+    });
+    const recordPath = await writeStage2bRecord(repositoryRoot, record);
+    const updated = await recordStage2bBatchRun({
+      repositoryRoot,
+      batchId: command.batchId,
+      runKey: selected.runKey,
+      record
+    });
+    const terminal = updated.manifest.runs.find(run => run.runKey === selected.runKey);
+    if (!terminal || terminal.status === 'pending') {
+      throw new Error('Stage 2B batch update did not produce a terminal run.');
+    }
+    const output = `${JSON.stringify({
+      batchId: command.batchId,
+      runKey: terminal.runKey,
+      status: terminal.status,
+      recordRunId: terminal.recordRunId,
+      recordStatus: terminal.recordStatus,
+      taskSuccess: terminal.taskSuccess,
+      recoverySuccess: terminal.recoverySuccess,
+      remainingPending: updated.manifest.runs.filter(run => run.status === 'pending').length,
+      manifestPath: updated.manifestPath,
+      recordPath
+    }, null, 2)}\n`;
+    (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
+    return record.status === 'completed' ? 0 : 1;
+  }
   const apiKey = (options.env ?? process.env).DEEPSEEK_API_KEY;
   const record = await runStage2bSmoke({
     repositoryRoot,
@@ -360,6 +418,14 @@ function parseRepetitionArgs(
   const repetitions = Number(value);
   validateStage2bPlanRepetitions(repetitions);
   return { mode, repetitions };
+}
+
+function parseRunNextArgs(argv: string[]): Stage2bCommand {
+  const batchId = argv[1];
+  if (argv.length !== 2 || argv[0] !== '--batch' || !batchId || !isStage2bBatchId(batchId)) {
+    throw new Error(`Invalid run-next batch. ${stage2bHelp}`);
+  }
+  return { mode: 'run-next', batchId };
 }
 
 async function instructionsForCondition(
