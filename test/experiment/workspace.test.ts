@@ -293,6 +293,68 @@ test('rejects symlinked source parent directories', async t => {
   }
 });
 
+test('rejects a symlinked task root', async t => {
+  const runRoot = await setup(t);
+  const mutableTaskRoot = await setupMutableExperiment(t);
+  const linkedTaskRoot = `${mutableTaskRoot}-link`;
+  t.after(() => rm(linkedTaskRoot, { force: true }));
+  if (!await createSymlinkOrSkip(t, mutableTaskRoot, linkedTaskRoot, 'dir')) return;
+
+  await assert.rejects(
+    prepareWorkspace({
+      task: directTask,
+      condition: 'description',
+      experimentRoot,
+      taskRoot: linkedTaskRoot,
+      runRoot,
+      runId: 'symlink-task-root'
+    })
+  );
+  await assert.rejects(stat(join(runRoot, 'workspaces')));
+});
+
+test('rejects a symlinked task-root fixture file without dereferencing it', async t => {
+  const runRoot = await setup(t);
+  const taskRoot = await setupMutableExperiment(t);
+  const fixturePath = join(taskRoot, 'tasks', 'fixtures', 'users.json');
+  const realFixturePath = `${fixturePath}.real`;
+  await rename(fixturePath, realFixturePath);
+  if (!await createSymlinkOrSkip(t, basename(realFixturePath), fixturePath, 'file')) return;
+
+  await assert.rejects(
+    prepareWorkspace({
+      task: directTask,
+      condition: 'description',
+      experimentRoot,
+      taskRoot,
+      runRoot,
+      runId: 'symlink-task-fixture'
+    })
+  );
+  assert.deepEqual(await readdir(join(runRoot, 'workspaces')), []);
+});
+
+test('rejects a symlinked task-root fixture parent directory without dereferencing it', async t => {
+  const runRoot = await setup(t);
+  const taskRoot = await setupMutableExperiment(t);
+  const fixtureDirectory = join(taskRoot, 'tasks', 'fixtures');
+  const realFixtureDirectory = `${fixtureDirectory}.real`;
+  await rename(fixtureDirectory, realFixtureDirectory);
+  if (!await createSymlinkOrSkip(t, basename(realFixtureDirectory), fixtureDirectory, 'dir')) return;
+
+  await assert.rejects(
+    prepareWorkspace({
+      task: directTask,
+      condition: 'description',
+      experimentRoot,
+      taskRoot,
+      runRoot,
+      runId: 'symlink-task-fixture-parent'
+    })
+  );
+  assert.deepEqual(await readdir(join(runRoot, 'workspaces')), []);
+});
+
 test('rejects a symlinked experiment root', async t => {
   const runRoot = await setup(t);
   const mutableExperimentRoot = await setupMutableExperiment(t);
