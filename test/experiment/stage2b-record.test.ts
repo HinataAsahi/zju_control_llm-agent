@@ -20,6 +20,7 @@ function record(runId = 'stage2b-T1-explicit-test'): Stage2bRecord {
     condition: 'explicit',
     status: 'completed',
     taskSuccess: true,
+    recoverySuccess: null,
     limits: {
       maxTurns: 5,
       maxToolCalls: 4,

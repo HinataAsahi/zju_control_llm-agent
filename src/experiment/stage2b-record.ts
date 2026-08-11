@@ -27,6 +27,7 @@ export interface Stage2bRecord {
   condition: ExperimentCondition;
   status: AgentRunStatus;
   taskSuccess: boolean | null;
+  recoverySuccess: boolean | null;
   limits: AgentLimits;
   turns: number;
   toolCalls: number;

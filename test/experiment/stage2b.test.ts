@@ -83,6 +83,7 @@ test('runs fake model to real MCP for the explicit T1 smoke', async t => {
   assert.equal(record.condition, 'explicit');
   assert.equal(record.status, 'completed');
   assert.equal(record.taskSuccess, true);
+  assert.equal(record.recoverySuccess, null);
   assert.equal(record.finalAnswer?.answer, 3);
   assert.equal(record.turns, 2);
   assert.equal(record.toolCalls, 1);
@@ -176,6 +177,7 @@ test('runs representative file, recovery, and missing-file tasks through real MC
       assert.match(record.runId, new RegExp(`^stage2b-${scenario.taskId}-explicit-`));
       assert.equal(record.status, 'completed');
       assert.equal(record.taskSuccess, true);
+      assert.equal(record.recoverySuccess, scenario.taskId === 'T7' ? true : null);
       assert.deepEqual(record.finalAnswer?.answer, scenario.expectedAnswer);
       assert.equal(record.toolCalls, scenario.expectedToolCalls);
       assert.match(
@@ -193,6 +195,31 @@ test('runs representative file, recovery, and missing-file tasks through real MC
       );
     });
   }
+});
+
+test('does not count a correct T7 answer without the required recovery path', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+
+  const record = await runStage2bSmoke({
+    repositoryRoot,
+    taskId: 'T7',
+    condition: 'description',
+    apiKey: 'offline-test-key',
+    dependencies: {
+      createModelClient: () => new ScriptedModel([
+        finalTurn(3, 'Returned the expected count without calling jq.')
+      ]),
+      connectTools: options => McpToolBridge.connect({
+        ...options,
+        serverEntrypoint: resolve('dist/src/mcp/server.js')
+      })
+    }
+  });
+
+  assert.equal(record.taskSuccess, true);
+  assert.equal(record.recoverySuccess, false);
 });
 
 test('keeps description and skill condition inputs isolated', async t => {
@@ -396,9 +423,15 @@ test('main routes the selected task and condition into the record and summary', 
   });
 
   assert.equal(exitCode, 0);
-  const summary = JSON.parse(output) as { taskId: string; condition: string; recordPath: string };
+  const summary = JSON.parse(output) as {
+    taskId: string;
+    condition: string;
+    recoverySuccess?: boolean | null;
+    recordPath: string;
+  };
   assert.equal(summary.taskId, 'T6');
   assert.equal(summary.condition, 'description');
+  assert.equal(summary.recoverySuccess, null);
   const record = JSON.parse(await readFile(summary.recordPath, 'utf8')) as {
     taskId: string; condition: string;
   };

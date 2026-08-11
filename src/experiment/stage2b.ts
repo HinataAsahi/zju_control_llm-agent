@@ -207,6 +207,7 @@ export async function runStage2bSmoke(options: {
     taskSuccess: finalAnswer
       ? answerMatchesExpected(finalAnswer, setup.task.expected)
       : null,
+    recoverySuccess: evaluateRecovery(taskId, result.status, result.history),
     limits: { ...STAGE2B_LIMITS },
     turns: result.turns,
     toolCalls: result.toolCalls,
@@ -238,6 +239,7 @@ function infrastructureRecord(options: {
     condition: options.condition,
     status: 'infrastructure-error',
     taskSuccess: null,
+    recoverySuccess: null,
     limits: { ...STAGE2B_LIMITS },
     turns: 0,
     toolCalls: 0,
@@ -275,6 +277,7 @@ export async function main(
     condition: record.condition,
     status: record.status,
     taskSuccess: record.taskSuccess,
+    recoverySuccess: record.recoverySuccess,
     turns: record.turns,
     toolCalls: record.toolCalls,
     usage: record.usage,
@@ -321,6 +324,53 @@ async function instructionsForCondition(
 function isToolEvent(item: unknown): item is Stage2bToolEvent {
   return isRecord(item)
     && (item.type === 'function_call' || item.type === 'function_call_output');
+}
+
+function evaluateRecovery(
+  taskId: Stage2bTaskId,
+  status: Stage2bRecord['status'],
+  history: readonly unknown[]
+): boolean | null {
+  if (taskId !== 'T7' || status !== 'completed') return null;
+  const events = history.filter(isToolEvent);
+  const calls = events.filter(event => event.type === 'function_call');
+  const firstCall = calls[0];
+  if (!firstCall || firstCall.name !== 'jq_query') return false;
+
+  const firstArguments = parseJsonRecord(firstCall.arguments);
+  const firstOutput = events.find(event =>
+    event.type === 'function_call_output' && event.callId === firstCall.callId
+  );
+  const firstResult = firstOutput?.type === 'function_call_output'
+    ? parseJsonRecord(firstOutput.output)
+    : undefined;
+  if (
+    firstArguments?.filter !== 'if'
+    || firstResult?.ok !== false
+    || !isRecord(firstResult.error)
+    || firstResult.error.code !== 'JQ_SYNTAX_ERROR'
+  ) {
+    return false;
+  }
+
+  return calls.slice(1).some(call => {
+    if (call.name !== 'jq_query') return false;
+    const output = events.find(event =>
+      event.type === 'function_call_output' && event.callId === call.callId
+    );
+    return output?.type === 'function_call_output'
+      ? parseJsonRecord(output.output)?.ok === true
+      : false;
+  });
+}
+
+function parseJsonRecord(text: string): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(text);
+    return isRecord(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
