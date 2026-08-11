@@ -8,13 +8,14 @@ import type {
 } from '../agent/agent-loop.js';
 import type { ModelHistoryItem, ModelUsage } from '../agent/model-client.js';
 import type { ExperimentAnswer, ExperimentCondition } from './schema.js';
+import type { Stage2bTaskId } from './stage2b-suite.js';
+
+export type { Stage2bTaskId } from './stage2b-suite.js';
 
 export type Stage2bToolEvent = Extract<
   ModelHistoryItem,
   { type: 'function_call' | 'function_call_output' }
 >;
-
-export type Stage2bTaskId = 'T1' | 'T2' | 'T6' | 'T7';
 
 export function createStage2bRunId(
   taskId: Stage2bTaskId,

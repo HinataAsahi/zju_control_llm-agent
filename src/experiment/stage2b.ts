@@ -45,6 +45,10 @@ import {
   STAGE2B_PLAN_MAX_REPETITIONS,
   validateStage2bPlanRepetitions
 } from './stage2b-plan.js';
+import {
+  STAGE2B_TASK_IDS,
+  type Stage2bSuiteId
+} from './stage2b-suite.js';
 import { writeStage2bComparisonReport } from './stage2b-report.js';
 import { loadTasks } from './task-loader.js';
 import { prepareWorkspace, type PreparedWorkspace } from './workspace.js';
@@ -61,9 +65,11 @@ export type Stage2bCommand = {
   condition: ExperimentCondition;
 } | {
   mode: 'plan';
+  suite: Stage2bSuiteId;
   repetitions: number;
 } | {
   mode: 'prepare';
+  suite: Stage2bSuiteId;
   repetitions: number;
 } | {
   mode: 'run-next';
@@ -98,13 +104,13 @@ const defaultDependencies: Stage2bDependencies = {
   now: () => new Date()
 };
 
-const supportedTaskIds: readonly Stage2bTaskId[] = ['T1', 'T2', 'T6', 'T7'];
+const supportedTaskIds: readonly Stage2bTaskId[] = STAGE2B_TASK_IDS;
 const supportedConditions: readonly ExperimentCondition[] = ['explicit', 'description', 'skill'];
 const stage2bHelp = [
   'Stage 2B supports:',
-  'smoke [--task T1|T2|T6|T7] [--condition explicit|description|skill];',
-  `plan [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
-  `prepare [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
+  'smoke [--task T1|T2|T6|T7|T9|T10|T11] [--condition explicit|description|skill];',
+  `plan [--suite baseline-v1|diagnostic-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
+  `prepare [--suite baseline-v1|diagnostic-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
   'run-next --batch <batch-id>;',
   'report --pilot-batch <batch-id> --calibrated-batch <batch-id> [--repeat-batch <batch-id>]'
 ].join(' ');
@@ -326,7 +332,7 @@ export async function main(
 ): Promise<0 | 1> {
   const command = parseStage2bArgs(argv);
   if (command.mode === 'plan') {
-    const output = `${JSON.stringify(createStage2bPlan(command.repetitions), null, 2)}\n`;
+    const output = `${JSON.stringify(createStage2bPlan(command.repetitions, command.suite), null, 2)}\n`;
     (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
     return 0;
   }
@@ -519,21 +525,45 @@ function isSupportedCondition(value: string | undefined): value is ExperimentCon
   return supportedConditions.some(condition => condition === value);
 }
 
+function isStage2bSuiteId(value: string | undefined): value is Stage2bSuiteId {
+  return value === 'baseline-v1' || value === 'diagnostic-v1';
+}
+
 function parseRepetitionArgs(
   mode: 'plan' | 'prepare',
   argv: string[]
-): Stage2bCommand {
-  if (argv.length === 0) return { mode, repetitions: 1 };
-  if (argv.length !== 2 || argv[0] !== '--repetitions') {
+): Extract<Stage2bCommand, { mode: 'plan' }> | Extract<Stage2bCommand, { mode: 'prepare' }> {
+  let repetitions = 1;
+  let suite: Stage2bSuiteId = 'baseline-v1';
+  let hasRepetitions = false;
+  let hasSuite = false;
+  if (argv.length % 2 !== 0) throw new Error(`Invalid ${mode} arguments. ${stage2bHelp}`);
+
+  for (let index = 0; index < argv.length; index += 2) {
+    const flag = argv[index];
+    const value = argv[index + 1];
+    if (flag === '--repetitions') {
+      if (hasRepetitions || !value || !/^[1-9]\d*$/.test(value)) {
+        throw new Error(`Invalid repetitions. ${stage2bHelp}`);
+      }
+      repetitions = Number(value);
+      validateStage2bPlanRepetitions(repetitions);
+      hasRepetitions = true;
+      continue;
+    }
+    if (flag === '--suite') {
+      if (hasSuite || !isStage2bSuiteId(value)) {
+        throw new Error(`Invalid suite. ${stage2bHelp}`);
+      }
+      suite = value;
+      hasSuite = true;
+      continue;
+    }
     throw new Error(`Invalid ${mode} arguments. ${stage2bHelp}`);
   }
-  const value = argv[1];
-  if (!value || !/^[1-9]\d*$/.test(value)) {
-    throw new Error(`Invalid repetitions. ${stage2bHelp}`);
-  }
-  const repetitions = Number(value);
-  validateStage2bPlanRepetitions(repetitions);
-  return { mode, repetitions };
+  return mode === 'plan'
+    ? { mode, suite, repetitions }
+    : { mode, suite, repetitions };
 }
 
 function parseRunNextArgs(argv: string[]): Stage2bCommand {

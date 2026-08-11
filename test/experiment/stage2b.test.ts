@@ -289,7 +289,7 @@ test('accepts smoke for the supported representative task set', () => {
   assert.deepEqual(parseStage2bArgs(['smoke']), {
     mode: 'smoke', taskId: 'T1', condition: 'explicit'
   });
-  for (const taskId of ['T1', 'T2', 'T6', 'T7'] as const) {
+  for (const taskId of ['T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11'] as const) {
     assert.deepEqual(parseStage2bArgs(['smoke', '--task', taskId]), {
       mode: 'smoke', taskId, condition: 'explicit'
     });
@@ -316,11 +316,17 @@ test('accepts smoke for the supported representative task set', () => {
   assert.throws(() => parseStage2bArgs(['formal']), /smoke/);
 });
 
-test('accepts a bounded repetition count for an offline plan', () => {
-  assert.deepEqual(parseStage2bArgs(['plan']), { mode: 'plan', repetitions: 1 });
+test('accepts suite-aware bounded repetition arguments for offline plans', () => {
+  assert.deepEqual(parseStage2bArgs(['plan']), {
+    mode: 'plan', suite: 'baseline-v1', repetitions: 1
+  });
   assert.deepEqual(
     parseStage2bArgs(['plan', '--repetitions', '3']),
-    { mode: 'plan', repetitions: 3 }
+    { mode: 'plan', suite: 'baseline-v1', repetitions: 3 }
+  );
+  assert.deepEqual(
+    parseStage2bArgs(['plan', '--suite', 'diagnostic-v1']),
+    { mode: 'plan', suite: 'diagnostic-v1', repetitions: 1 }
   );
   for (const argv of [
     ['plan', '--repetitions'],
@@ -328,23 +334,35 @@ test('accepts a bounded repetition count for an offline plan', () => {
     ['plan', '--repetitions', '1.5'],
     ['plan', '--repetitions', '101'],
     ['plan', '--unknown', '2'],
-    ['plan', '--repetitions', '2', '--repetitions', '3']
+    ['plan', '--repetitions', '2', '--repetitions', '3'],
+    ['plan', '--suite', 'unknown-v1'],
+    ['plan', '--suite', 'baseline-v1', '--suite', 'diagnostic-v1'],
+    ['plan', '--suite', 'baseline-v1', '--repetitions']
   ]) {
     assert.throws(() => parseStage2bArgs(argv), /plan|repetitions/i);
   }
 });
 
-test('accepts the same bounded repetition count for batch preparation', () => {
-  assert.deepEqual(parseStage2bArgs(['prepare']), { mode: 'prepare', repetitions: 1 });
+test('accepts suite-aware bounded repetition arguments for batch preparation', () => {
+  assert.deepEqual(parseStage2bArgs(['prepare']), {
+    mode: 'prepare', suite: 'baseline-v1', repetitions: 1
+  });
   assert.deepEqual(
     parseStage2bArgs(['prepare', '--repetitions', '3']),
-    { mode: 'prepare', repetitions: 3 }
+    { mode: 'prepare', suite: 'baseline-v1', repetitions: 3 }
+  );
+  assert.deepEqual(
+    parseStage2bArgs(['prepare', '--repetitions', '2', '--suite', 'diagnostic-v1']),
+    { mode: 'prepare', suite: 'diagnostic-v1', repetitions: 2 }
   );
   for (const argv of [
     ['prepare', '--repetitions'],
     ['prepare', '--repetitions', '0'],
     ['prepare', '--repetitions', '101'],
-    ['prepare', '--unknown', '2']
+    ['prepare', '--unknown', '2'],
+    ['prepare', '--suite', 'unknown-v1'],
+    ['prepare', '--suite', 'baseline-v1', '--suite', 'diagnostic-v1'],
+    ['prepare', '--suite', 'diagnostic-v1', '--repetitions']
   ]) {
     assert.throws(() => parseStage2bArgs(argv), /prepare|repetitions/i);
   }
@@ -385,6 +403,7 @@ test('renders the T2 and T7 condition matrix without credentials or side effects
   const plan = JSON.parse(output) as {
     version: number;
     mode: string;
+    suite: string;
     tasks: string[];
     conditions: string[];
     repetitions: number;
@@ -397,6 +416,7 @@ test('renders the T2 and T7 condition matrix without credentials or side effects
   assert.deepEqual({
     version: plan.version,
     mode: plan.mode,
+    suite: plan.suite,
     tasks: plan.tasks,
     conditions: plan.conditions,
     repetitions: plan.repetitions,
@@ -405,8 +425,9 @@ test('renders the T2 and T7 condition matrix without credentials or side effects
     sampling: plan.sampling,
     upperBounds: plan.upperBounds
   }, {
-    version: 1,
+    version: 2,
     mode: 'plan',
+    suite: 'baseline-v1',
     tasks: ['T2', 'T7'],
     conditions: ['explicit', 'description', 'skill'],
     repetitions: 2,

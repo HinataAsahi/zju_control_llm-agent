@@ -1,6 +1,11 @@
 import { STAGE2B_LIMITS } from '../agent/agent-loop.js';
 import { DEEPSEEK_TEMPERATURE } from '../agent/deepseek-client.js';
 import type { ExperimentCondition } from './schema.js';
+import {
+  expandStage2bSuite,
+  getStage2bSuite,
+  type Stage2bSuiteId
+} from './stage2b-suite.js';
 
 export const STAGE2B_PLAN_MAX_REPETITIONS = 100;
 export const STAGE2B_PLAN_TASKS = ['T2', 'T7'] as const;
@@ -10,16 +15,21 @@ export const STAGE2B_PLAN_CONDITIONS: readonly ExperimentCondition[] = [
   'skill'
 ];
 
-export interface Stage2bPlanRun {
-  taskId: 'T2' | 'T7';
+export type Stage2bSuiteTaskId<Suite extends Stage2bSuiteId> = Suite extends 'baseline-v1'
+  ? 'T2' | 'T7'
+  : 'T9' | 'T10' | 'T11';
+
+export interface Stage2bPlanRun<Suite extends Stage2bSuiteId = Stage2bSuiteId> {
+  taskId: Stage2bSuiteTaskId<Suite>;
   condition: ExperimentCondition;
   repetition: number;
 }
 
-export interface Stage2bPlan {
-  version: 1;
+export interface Stage2bPlan<Suite extends Stage2bSuiteId = Stage2bSuiteId> {
+  version: 2;
   mode: 'plan';
-  tasks: Array<'T2' | 'T7'>;
+  suite: Suite;
+  tasks: Array<Stage2bSuiteTaskId<Suite>>;
   conditions: ExperimentCondition[];
   repetitions: number;
   totalRuns: number;
@@ -31,24 +41,27 @@ export interface Stage2bPlan {
     modelRequests: number;
     toolCalls: number;
   };
-  runs: Stage2bPlanRun[];
+  runs: Stage2bPlanRun<Suite>[];
 }
 
-export function createStage2bPlan(repetitions = 1): Stage2bPlan {
+export function createStage2bPlan(): Stage2bPlan<'baseline-v1'>;
+export function createStage2bPlan(repetitions: number): Stage2bPlan<'baseline-v1'>;
+export function createStage2bPlan<Suite extends Stage2bSuiteId>(
+  repetitions: number,
+  suite: Suite
+): Stage2bPlan<Suite>;
+export function createStage2bPlan(
+  repetitions = 1,
+  suite: Stage2bSuiteId = 'baseline-v1'
+): Stage2bPlan {
   validateStage2bPlanRepetitions(repetitions);
-  const runs = STAGE2B_PLAN_TASKS.flatMap(taskId =>
-    STAGE2B_PLAN_CONDITIONS.flatMap(condition =>
-      Array.from({ length: repetitions }, (_, index) => ({
-        taskId,
-        condition,
-        repetition: index + 1
-      }))
-    )
-  );
+  const runs = expandStage2bSuite(suite, repetitions);
+  const selectedSuite = getStage2bSuite(suite);
   return {
-    version: 1,
+    version: 2,
     mode: 'plan',
-    tasks: [...STAGE2B_PLAN_TASKS],
+    suite,
+    tasks: [...selectedSuite.taskIds] as Stage2bSuiteTaskId<Stage2bSuiteId>[],
     conditions: [...STAGE2B_PLAN_CONDITIONS],
     repetitions,
     totalRuns: runs.length,
@@ -58,7 +71,7 @@ export function createStage2bPlan(repetitions = 1): Stage2bPlan {
       modelRequests: runs.length * STAGE2B_LIMITS.maxTurns,
       toolCalls: runs.length * STAGE2B_LIMITS.maxToolCalls
     },
-    runs
+    runs: runs as Stage2bPlanRun[]
   };
 }
 
