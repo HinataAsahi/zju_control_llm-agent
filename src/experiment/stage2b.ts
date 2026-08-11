@@ -39,10 +39,34 @@ export interface Stage2bDependencies {
   now(): Date;
 }
 
-export interface Stage2bCommand {
+export type Stage2bCommand = {
   mode: 'smoke';
   taskId: Stage2bTaskId;
   condition: ExperimentCondition;
+} | {
+  mode: 'plan';
+  repetitions: number;
+};
+
+interface Stage2bPlanRun {
+  taskId: 'T2' | 'T7';
+  condition: ExperimentCondition;
+  repetition: number;
+}
+
+interface Stage2bPlan {
+  version: 1;
+  mode: 'plan';
+  tasks: Array<'T2' | 'T7'>;
+  conditions: ExperimentCondition[];
+  repetitions: number;
+  totalRuns: number;
+  requiresApiKey: false;
+  upperBounds: {
+    modelRequests: number;
+    toolCalls: number;
+  };
+  runs: Stage2bPlanRun[];
 }
 
 export type { Stage2bTaskId } from './stage2b-record.js';
@@ -70,9 +94,16 @@ const defaultDependencies: Stage2bDependencies = {
 
 const supportedTaskIds: readonly Stage2bTaskId[] = ['T1', 'T2', 'T6', 'T7'];
 const supportedConditions: readonly ExperimentCondition[] = ['explicit', 'description', 'skill'];
-const stage2bHelp = 'Stage 2B supports: smoke [--task T1|T2|T6|T7] [--condition explicit|description|skill]';
+const plannedTaskIds = ['T2', 'T7'] as const;
+const maximumPlanRepetitions = 100;
+const stage2bHelp = [
+  'Stage 2B supports:',
+  'smoke [--task T1|T2|T6|T7] [--condition explicit|description|skill];',
+  'plan [--repetitions 1..100]'
+].join(' ');
 
 export function parseStage2bArgs(argv: string[]): Stage2bCommand {
+  if (argv[0] === 'plan') return parsePlanArgs(argv.slice(1));
   if (argv[0] !== 'smoke') throw new Error(stage2bHelp);
   let taskId: Stage2bTaskId = 'T1';
   let condition: ExperimentCondition = 'explicit';
@@ -99,6 +130,33 @@ export function parseStage2bArgs(argv: string[]): Stage2bCommand {
     throw new Error(stage2bHelp);
   }
   return { mode: 'smoke', taskId, condition };
+}
+
+function createStage2bPlan(repetitions = 1): Stage2bPlan {
+  validateRepetitions(repetitions);
+  const runs = plannedTaskIds.flatMap(taskId =>
+    supportedConditions.flatMap(condition =>
+      Array.from({ length: repetitions }, (_, index) => ({
+        taskId,
+        condition,
+        repetition: index + 1
+      }))
+    )
+  );
+  return {
+    version: 1,
+    mode: 'plan',
+    tasks: [...plannedTaskIds],
+    conditions: [...supportedConditions],
+    repetitions,
+    totalRuns: runs.length,
+    requiresApiKey: false,
+    upperBounds: {
+      modelRequests: runs.length * STAGE2B_LIMITS.maxTurns,
+      toolCalls: runs.length * STAGE2B_LIMITS.maxToolCalls
+    },
+    runs
+  };
 }
 
 export function stage2bExitCode(
@@ -261,6 +319,11 @@ export async function main(
   options: Stage2bMainOptions = {}
 ): Promise<0 | 1> {
   const command = parseStage2bArgs(argv);
+  if (command.mode === 'plan') {
+    const output = `${JSON.stringify(createStage2bPlan(command.repetitions), null, 2)}\n`;
+    (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
+    return 0;
+  }
   const repositoryRoot = options.repositoryRoot ?? process.cwd();
   const apiKey = (options.env ?? process.env).DEEPSEEK_API_KEY;
   const record = await runStage2bSmoke({
@@ -302,6 +365,30 @@ function isSupportedTaskId(value: string | undefined): value is Stage2bTaskId {
 
 function isSupportedCondition(value: string | undefined): value is ExperimentCondition {
   return supportedConditions.some(condition => condition === value);
+}
+
+function parsePlanArgs(argv: string[]): Stage2bCommand {
+  if (argv.length === 0) return { mode: 'plan', repetitions: 1 };
+  if (argv.length !== 2 || argv[0] !== '--repetitions') {
+    throw new Error(`Invalid plan arguments. ${stage2bHelp}`);
+  }
+  const value = argv[1];
+  if (!value || !/^[1-9]\d*$/.test(value)) {
+    throw new Error(`Invalid repetitions. ${stage2bHelp}`);
+  }
+  const repetitions = Number(value);
+  validateRepetitions(repetitions);
+  return { mode: 'plan', repetitions };
+}
+
+function validateRepetitions(repetitions: number): void {
+  if (
+    !Number.isSafeInteger(repetitions)
+    || repetitions < 1
+    || repetitions > maximumPlanRepetitions
+  ) {
+    throw new Error(`Repetitions must be an integer from 1 to ${maximumPlanRepetitions}.`);
+  }
 }
 
 async function instructionsForCondition(

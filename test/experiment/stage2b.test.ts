@@ -309,6 +309,83 @@ test('accepts smoke for the supported representative task set', () => {
   assert.throws(() => parseStage2bArgs(['formal']), /smoke/);
 });
 
+test('accepts a bounded repetition count for an offline plan', () => {
+  assert.deepEqual(parseStage2bArgs(['plan']), { mode: 'plan', repetitions: 1 });
+  assert.deepEqual(
+    parseStage2bArgs(['plan', '--repetitions', '3']),
+    { mode: 'plan', repetitions: 3 }
+  );
+  for (const argv of [
+    ['plan', '--repetitions'],
+    ['plan', '--repetitions', '0'],
+    ['plan', '--repetitions', '1.5'],
+    ['plan', '--repetitions', '101'],
+    ['plan', '--unknown', '2'],
+    ['plan', '--repetitions', '2', '--repetitions', '3']
+  ]) {
+    assert.throws(() => parseStage2bArgs(argv), /plan|repetitions/i);
+  }
+});
+
+test('renders the T2 and T7 condition matrix without credentials or side effects', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-plan-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  let output = '';
+
+  const exitCode = await main(['plan', '--repetitions', '2'], {
+    repositoryRoot,
+    env: {},
+    writeOutput: text => { output += text; },
+    dependencies: {
+      createModelClient: () => { throw new Error('plan must not create a model client'); },
+      connectTools: async () => { throw new Error('plan must not connect MCP tools'); }
+    }
+  });
+
+  assert.equal(exitCode, 0);
+  const plan = JSON.parse(output) as {
+    version: number;
+    mode: string;
+    tasks: string[];
+    conditions: string[];
+    repetitions: number;
+    totalRuns: number;
+    requiresApiKey: boolean;
+    upperBounds: { modelRequests: number; toolCalls: number };
+    runs: Array<{ taskId: string; condition: string; repetition: number }>;
+  };
+  assert.deepEqual({
+    version: plan.version,
+    mode: plan.mode,
+    tasks: plan.tasks,
+    conditions: plan.conditions,
+    repetitions: plan.repetitions,
+    totalRuns: plan.totalRuns,
+    requiresApiKey: plan.requiresApiKey,
+    upperBounds: plan.upperBounds
+  }, {
+    version: 1,
+    mode: 'plan',
+    tasks: ['T2', 'T7'],
+    conditions: ['explicit', 'description', 'skill'],
+    repetitions: 2,
+    totalRuns: 12,
+    requiresApiKey: false,
+    upperBounds: { modelRequests: 60, toolCalls: 48 }
+  });
+  assert.deepEqual(plan.runs.slice(0, 4), [
+    { taskId: 'T2', condition: 'explicit', repetition: 1 },
+    { taskId: 'T2', condition: 'explicit', repetition: 2 },
+    { taskId: 'T2', condition: 'description', repetition: 1 },
+    { taskId: 'T2', condition: 'description', repetition: 2 }
+  ]);
+  assert.deepEqual(plan.runs.slice(-2), [
+    { taskId: 'T7', condition: 'skill', repetition: 1 },
+    { taskId: 'T7', condition: 'skill', repetition: 2 }
+  ]);
+  await assert.rejects(lstat(join(repositoryRoot, '.experiment-runs')), { code: 'ENOENT' });
+});
+
 test('returns a failing process code unless the smoke task completes correctly', () => {
   assert.equal(stage2bExitCode({ status: 'completed', taskSuccess: true }), 0);
   assert.equal(stage2bExitCode({ status: 'completed', taskSuccess: false }), 1);
