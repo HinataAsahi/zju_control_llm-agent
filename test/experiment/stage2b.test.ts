@@ -95,8 +95,8 @@ test('runs fake model to real MCP for the explicit T1 smoke', async t => {
   assert.equal(record.turns, 2);
   assert.equal(record.toolCalls, 1);
   assert.deepEqual(record.limits, {
-    maxTurns: 5,
-    maxToolCalls: 4,
+    maxTurns: 6,
+    maxToolCalls: 5,
     requestTimeoutMs: 60_000,
     totalTimeoutMs: 120_000
   });
@@ -413,7 +413,7 @@ test('renders the T2 and T7 condition matrix without credentials or side effects
     totalRuns: 12,
     requiresApiKey: false,
     sampling: { temperature: 0 },
-    upperBounds: { modelRequests: 60, toolCalls: 48 }
+    upperBounds: { modelRequests: 72, toolCalls: 60 }
   });
   assert.deepEqual(plan.runs.slice(0, 4), [
     { taskId: 'T2', condition: 'explicit', repetition: 1 },
@@ -500,8 +500,8 @@ test('prepares a private pending batch manifest without credentials or tool conn
     repetitions: 2,
     totalRuns: 12,
     limits: {
-      maxTurns: 5,
-      maxToolCalls: 4,
+      maxTurns: 6,
+      maxToolCalls: 5,
       requestTimeoutMs: 60_000,
       totalTimeoutMs: 120_000
     }
@@ -559,13 +559,23 @@ test('normalizes a legacy batch without sampling metadata to provider defaults',
   };
   const legacy = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
   delete legacy.sampling;
+  legacy.limits = {
+    maxTurns: 5,
+    maxToolCalls: 4,
+    requestTimeoutMs: 60_000,
+    totalTimeoutMs: 120_000
+  };
   await writeFile(manifestPath, `${JSON.stringify(legacy, null, 2)}\n`, 'utf8');
 
   const loaded = await readStage2bBatchManifest(repositoryRoot, batchId) as unknown as {
-    manifest: { sampling: { temperature: number | null } };
+    manifest: {
+      sampling: { temperature: number | null };
+      limits: Record<string, number>;
+    };
   };
 
   assert.deepEqual(loaded.manifest.sampling, { temperature: null });
+  assert.deepEqual(loaded.manifest.limits, legacy.limits);
 });
 
 test('serializes concurrent claims for the same Stage 2B batch', async t => {
@@ -720,6 +730,16 @@ test('run-next records a setup failure as failed without creating a model client
     batchId: string;
     manifestPath: string;
   };
+  const legacyManifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    limits: Record<string, number>;
+  };
+  legacyManifest.limits = {
+    maxTurns: 5,
+    maxToolCalls: 4,
+    requestTimeoutMs: 60_000,
+    totalTimeoutMs: 120_000
+  };
+  await writeFile(manifestPath, `${JSON.stringify(legacyManifest, null, 2)}\n`, 'utf8');
   const times = [
     new Date('2026-08-11T08:01:00.000Z'),
     new Date('2026-08-11T08:01:00.025Z')
@@ -765,6 +785,11 @@ test('run-next records a setup failure as failed without creating a model client
       'record.json'
     )
   });
+  const recordPath = (JSON.parse(output) as { recordPath: string }).recordPath;
+  const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
+    limits: Record<string, number>;
+  };
+  assert.deepEqual(record.limits, legacyManifest.limits);
 });
 
 test('run-next reconciles an existing record without starting another paid run', async t => {

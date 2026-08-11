@@ -15,8 +15,8 @@ export interface AgentLimits {
 }
 
 export const STAGE2B_LIMITS: Readonly<AgentLimits> = Object.freeze({
-  maxTurns: 5,
-  maxToolCalls: 4,
+  maxTurns: 6,
+  maxToolCalls: 5,
   requestTimeoutMs: 60_000,
   totalTimeoutMs: 120_000
 });

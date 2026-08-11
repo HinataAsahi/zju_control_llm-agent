@@ -50,6 +50,16 @@ const terminalBatchRunSchema = z.strictObject({
   recoverySuccess: z.boolean().nullable()
 });
 
+const stage2bLimitsSchema = z.strictObject({
+  maxTurns: z.number().int().min(1).max(STAGE2B_LIMITS.maxTurns),
+  maxToolCalls: z.number().int().min(1).max(STAGE2B_LIMITS.maxToolCalls),
+  requestTimeoutMs: z.literal(STAGE2B_LIMITS.requestTimeoutMs),
+  totalTimeoutMs: z.literal(STAGE2B_LIMITS.totalTimeoutMs)
+}).refine(
+  limits => limits.maxTurns === limits.maxToolCalls + 1,
+  { message: 'Stage 2B limits must reserve one final-answer turn.' }
+);
+
 const stage2bBatchManifestSchema = z.strictObject({
   version: z.literal(1),
   batchId: z.string().regex(/^stage2b-batch-[A-Za-z0-9._-]+$/),
@@ -62,12 +72,7 @@ const stage2bBatchManifestSchema = z.strictObject({
   }).default({ temperature: null }),
   repetitions: z.number().int().min(1).max(STAGE2B_PLAN_MAX_REPETITIONS),
   totalRuns: z.number().int().min(1),
-  limits: z.strictObject({
-    maxTurns: z.literal(STAGE2B_LIMITS.maxTurns),
-    maxToolCalls: z.literal(STAGE2B_LIMITS.maxToolCalls),
-    requestTimeoutMs: z.literal(STAGE2B_LIMITS.requestTimeoutMs),
-    totalTimeoutMs: z.literal(STAGE2B_LIMITS.totalTimeoutMs)
-  }),
+  limits: stage2bLimitsSchema,
   runs: z.array(z.discriminatedUnion('status', [
     pendingBatchRunSchema,
     runningBatchRunSchema,

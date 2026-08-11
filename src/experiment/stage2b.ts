@@ -4,7 +4,8 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   runAgent,
-  STAGE2B_LIMITS
+  STAGE2B_LIMITS,
+  type AgentLimits
 } from '../agent/agent-loop.js';
 import {
   createDeepSeekModelClient,
@@ -146,6 +147,7 @@ export async function runStage2bSmoke(options: {
   condition?: ExperimentCondition;
   runId?: string;
   temperature?: number | null;
+  limits?: AgentLimits;
   apiKey?: string;
   dependencies?: Partial<Stage2bDependencies>;
 }): Promise<Stage2bRecord> {
@@ -159,6 +161,7 @@ export async function runStage2bSmoke(options: {
   const temperature = options.temperature === undefined
     ? DEEPSEEK_TEMPERATURE
     : options.temperature;
+  const limits = { ...(options.limits ?? STAGE2B_LIMITS) };
   const startedAt = dependencies.now();
   const runId = options.runId ?? createStage2bRunId(taskId, condition, startedAt);
   if (!isStage2bRunId(runId)) throw new Error('Invalid Stage 2B run ID.');
@@ -197,6 +200,7 @@ export async function runStage2bSmoke(options: {
       taskId,
       condition,
       temperature,
+      limits,
       startedAt,
       finishedAt: dependencies.now(),
       category: 'configuration',
@@ -216,6 +220,7 @@ export async function runStage2bSmoke(options: {
       taskId,
       condition,
       temperature,
+      limits,
       startedAt,
       finishedAt: dependencies.now(),
       category: 'mcp',
@@ -230,7 +235,7 @@ export async function runStage2bSmoke(options: {
     outputSchema: setup.outputSchema,
     parseFinalAnswer: parseExperimentAnswerText,
     diagnoseInvalidFinalAnswer: diagnoseExperimentAnswer,
-    limits: { ...STAGE2B_LIMITS }
+    limits
   });
   const finishedAt = dependencies.now();
   const finalAnswer = result.finalAnswer;
@@ -250,7 +255,7 @@ export async function runStage2bSmoke(options: {
       ? answerMatchesExpected(finalAnswer, setup.task.expected)
       : null,
     recoverySuccess: evaluateRecovery(taskId, result.status, result.history),
-    limits: { ...STAGE2B_LIMITS },
+    limits,
     turns: result.turns,
     toolCalls: result.toolCalls,
     toolEvents: result.history.filter(isToolEvent),
@@ -266,6 +271,7 @@ function infrastructureRecord(options: {
   taskId: Stage2bTaskId;
   condition: ExperimentCondition;
   temperature: number | null;
+  limits: AgentLimits;
   startedAt: Date;
   finishedAt: Date;
   category: 'configuration' | 'mcp';
@@ -284,7 +290,7 @@ function infrastructureRecord(options: {
     status: 'infrastructure-error',
     taskSuccess: null,
     recoverySuccess: null,
-    limits: { ...STAGE2B_LIMITS },
+    limits: { ...options.limits },
     turns: 0,
     toolCalls: 0,
     toolEvents: [],
@@ -377,6 +383,7 @@ export async function main(
       condition: selected.condition,
       runId: selected.recordRunId,
       temperature: claimed.manifest.sampling.temperature,
+      limits: claimed.manifest.limits,
       ...(apiKey !== undefined ? { apiKey } : {}),
       ...(options.dependencies ? { dependencies: options.dependencies } : {})
     });

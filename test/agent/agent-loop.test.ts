@@ -266,8 +266,8 @@ test('returns an unknown tool error to the model', async () => {
   assert.equal(gateway.calls.length, 0);
 });
 
-test('does not execute a fifth tool call', async () => {
-  const calls = Array.from({ length: 5 }, (_, index) => ({
+test('does not execute a sixth tool call', async () => {
+  const calls = Array.from({ length: 6 }, (_, index) => ({
     callId: `call-${index}`,
     name: 'jq_query',
     arguments: '{}'
@@ -277,7 +277,7 @@ test('does not execute a fifth tool call', async () => {
     functionCalls: calls,
     usage: usage(1, 1)
   }]);
-  const gateway = fakeGateway(['{}', '{}', '{}', '{}', '{}']);
+  const gateway = fakeGateway(['{}', '{}', '{}', '{}', '{}', '{}']);
 
   const result = await runAgent({
     client,
@@ -290,13 +290,13 @@ test('does not execute a fifth tool call', async () => {
 
   assert.equal(result.status, 'limit-exceeded');
   assert.equal(result.error?.code, 'MAX_TOOL_CALLS');
-  assert.equal(result.toolCalls, 4);
-  assert.equal(gateway.calls.length, 4);
+  assert.equal(result.toolCalls, 5);
+  assert.equal(gateway.calls.length, 5);
   assert.equal(gateway.closes, 1);
 });
 
-test('allows a final answer after four separate tool-call turns', async () => {
-  const calls = Array.from({ length: 4 }, (_, index) => ({
+test('allows a final answer after five separate tool-call turns', async () => {
+  const calls = Array.from({ length: 5 }, (_, index) => ({
     callId: `call-${index}`,
     name: 'jq_query',
     arguments: '{}'
@@ -315,7 +315,7 @@ test('allows a final answer after four separate tool-call turns', async () => {
       usage: usage(1, 1)
     }
   ]);
-  const gateway = fakeGateway(['{}', '{}', '{}', '{}']);
+  const gateway = fakeGateway(['{}', '{}', '{}', '{}', '{}']);
 
   const result = await runAgent({
     client,
@@ -327,9 +327,9 @@ test('allows a final answer after four separate tool-call turns', async () => {
   });
 
   assert.equal(result.status, 'completed');
-  assert.equal(result.turns, 5);
-  assert.equal(result.toolCalls, 4);
-  assert.equal(gateway.calls.length, 4);
+  assert.equal(result.turns, 6);
+  assert.equal(result.toolCalls, 5);
+  assert.equal(gateway.calls.length, 5);
 });
 
 test('classifies API, MCP, and invalid final output without exposing raw errors', async t => {
