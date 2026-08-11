@@ -45,6 +45,7 @@ import {
   STAGE2B_PLAN_MAX_REPETITIONS,
   validateStage2bPlanRepetitions
 } from './stage2b-plan.js';
+import { writeStage2bComparisonReport } from './stage2b-report.js';
 import { loadTasks } from './task-loader.js';
 import { prepareWorkspace, type PreparedWorkspace } from './workspace.js';
 
@@ -67,6 +68,10 @@ export type Stage2bCommand = {
 } | {
   mode: 'run-next';
   batchId: string;
+} | {
+  mode: 'report';
+  pilotBatchId: string;
+  calibratedBatchId: string;
 };
 
 export type { Stage2bTaskId } from './stage2b-record.js';
@@ -99,7 +104,8 @@ const stage2bHelp = [
   'smoke [--task T1|T2|T6|T7] [--condition explicit|description|skill];',
   `plan [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
   `prepare [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
-  'run-next --batch <batch-id>'
+  'run-next --batch <batch-id>;',
+  'report --pilot-batch <batch-id> --calibrated-batch <batch-id>'
 ].join(' ');
 
 export function parseStage2bArgs(argv: string[]): Stage2bCommand {
@@ -107,6 +113,7 @@ export function parseStage2bArgs(argv: string[]): Stage2bCommand {
     return parseRepetitionArgs(argv[0], argv.slice(1));
   }
   if (argv[0] === 'run-next') return parseRunNextArgs(argv.slice(1));
+  if (argv[0] === 'report') return parseReportArgs(argv.slice(1));
   if (argv[0] !== 'smoke') throw new Error(stage2bHelp);
   let taskId: Stage2bTaskId = 'T1';
   let condition: ExperimentCondition = 'explicit';
@@ -139,6 +146,12 @@ export function stage2bExitCode(
   record: Pick<Stage2bRecord, 'status' | 'taskSuccess'>
 ): 0 | 1 {
   return record.status === 'completed' && record.taskSuccess === true ? 0 : 1;
+}
+
+export function stage2bFailureMessage(argv: string[]): string {
+  return argv[0] === 'report'
+    ? 'Stage 2B report failed. Verify the local batch records and configuration.\n'
+    : 'Stage 2B smoke failed. Inspect the local record when available.\n';
 }
 
 export async function runStage2bSmoke(options: {
@@ -317,6 +330,22 @@ export async function main(
     return 0;
   }
   const repositoryRoot = options.repositoryRoot ?? process.cwd();
+  if (command.mode === 'report') {
+    const result = await writeStage2bComparisonReport({
+      repositoryRoot,
+      pilotBatchId: command.pilotBatchId,
+      calibratedBatchId: command.calibratedBatchId
+    });
+    const output = `${JSON.stringify({
+      status: 'reported',
+      pilotBatchId: command.pilotBatchId,
+      calibratedBatchId: command.calibratedBatchId,
+      jsonPath: result.jsonPath,
+      markdownPath: result.markdownPath
+    }, null, 2)}\n`;
+    (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
+    return 0;
+  }
   if (command.mode === 'prepare') {
     const dependencies = { ...defaultDependencies, ...options.dependencies };
     const prepared = await prepareStage2bBatch({
@@ -438,6 +467,32 @@ export async function main(
   return stage2bExitCode(record);
 }
 
+function parseReportArgs(argv: string[]): Extract<Stage2bCommand, { mode: 'report' }> {
+  let pilotBatchId: string | undefined;
+  let calibratedBatchId: string | undefined;
+  for (let index = 0; index < argv.length; index += 2) {
+    const flag = argv[index];
+    const value = argv[index + 1];
+    if (flag === '--pilot-batch' && pilotBatchId === undefined && isStage2bBatchId(value ?? '')) {
+      pilotBatchId = value;
+      continue;
+    }
+    if (
+      flag === '--calibrated-batch'
+      && calibratedBatchId === undefined
+      && isStage2bBatchId(value ?? '')
+    ) {
+      calibratedBatchId = value;
+      continue;
+    }
+    throw new Error(stage2bHelp);
+  }
+  if (!pilotBatchId || !calibratedBatchId || pilotBatchId === calibratedBatchId) {
+    throw new Error(stage2bHelp);
+  }
+  return { mode: 'report', pilotBatchId, calibratedBatchId };
+}
+
 function isSupportedTaskId(value: string | undefined): value is Stage2bTaskId {
   return supportedTaskIds.some(taskId => taskId === value);
 }
@@ -557,7 +612,7 @@ if (isEntrypoint(process.argv[1])) {
   main()
     .then(exitCode => { process.exitCode = exitCode; })
     .catch(() => {
-      process.stderr.write('Stage 2B smoke failed. Inspect the local record when available.\n');
+      process.stderr.write(stage2bFailureMessage(process.argv.slice(2)));
       process.exitCode = 1;
     });
 }
