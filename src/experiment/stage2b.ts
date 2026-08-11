@@ -40,6 +40,14 @@ export interface Stage2bCommand {
   mode: 'smoke';
 }
 
+const STAGE2B_INSTRUCTIONS = [
+  'Complete the task using the discovered MCP tools when applicable.',
+  'After using tools, return only one JSON object with exactly these fields and no other fields:',
+  '{"status":"completed","answer":"TASK_RESULT","explanation":"BRIEF_REASON"}',
+  'Replace TASK_RESULT with the actual JSON result. If completion is impossible, use status cannot_complete and answer null.',
+  'Do not return the schema, Markdown fences, or text outside the JSON object.'
+].join('\n');
+
 const defaultDependencies: Stage2bDependencies = {
   createModelClient: apiKey => createDeepSeekModelClient({ apiKey }),
   connectTools: options => McpToolBridge.connect(options),
@@ -85,7 +93,7 @@ export async function runStage2bSmoke(options: {
   const result = await runAgent({
     client,
     tools,
-    instructions: 'Complete the task using the discovered MCP tools when applicable.',
+    instructions: STAGE2B_INSTRUCTIONS,
     input: workspace.prompt,
     outputSchema: outputSchemaValue,
     parseFinalAnswer: parseExperimentAnswerText,

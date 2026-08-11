@@ -98,6 +98,9 @@ test('runs fake model to real MCP for the explicit T1 smoke', async t => {
   assert.match(model.requests[0]?.history[0]?.type === 'message'
     ? model.requests[0].history[0].content
     : '', /jq_query/);
+  assert.match(model.requests[0]?.instructions ?? '', /JSON/);
+  assert.match(model.requests[0]?.instructions ?? '', /"status"/);
+  assert.match(model.requests[0]?.instructions ?? '', /no other fields/i);
   assert.deepEqual(model.requests[0]?.tools.map(tool => tool.name), ['jq_query']);
   assert.match(record.toolEvents[1]?.type === 'function_call_output'
     ? record.toolEvents[1].output

@@ -60,17 +60,9 @@ test('configures the official SDK without retry or provider-side state', async (
   assert.equal(capturedBody?.instructions, 'Use jq when applicable.');
   assert.equal(capturedSignal, signal);
   assert.deepEqual(capturedBody?.text, {
-    format: {
-      type: 'json_schema',
-      name: 'experiment_answer',
-      schema: {
-        type: 'object',
-        properties: { status: { type: 'string' } },
-        required: ['status'],
-        additionalProperties: false
-      }
-    }
+    format: { type: 'json_object' }
   });
+  assert.doesNotMatch(JSON.stringify(capturedBody?.text), /schema/);
   assert.deepEqual(capturedBody?.tools, [{
     type: 'function',
     name: 'jq_query',

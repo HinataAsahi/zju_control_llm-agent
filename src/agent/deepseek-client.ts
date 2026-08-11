@@ -80,20 +80,11 @@ function createRequest(request: ModelTurnRequest): ResponseCreateParamsNonStream
     input: request.history.map(toResponseInput),
     tools,
     text: {
-      format: {
-        type: 'json_schema',
-        name: 'experiment_answer',
-        schema: withoutSchemaDialect(request.outputSchema)
-      }
+      format: { type: 'json_object' }
     },
     store: false,
     reasoning: { effort: 'none' }
   };
-}
-
-function withoutSchemaDialect(schema: Record<string, unknown>): Record<string, unknown> {
-  const { $schema: _schemaDialect, ...supportedSchema } = schema;
-  return supportedSchema;
 }
 
 function toResponseInput(item: ModelHistoryItem): ResponseInputItem {
