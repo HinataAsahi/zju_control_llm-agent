@@ -304,7 +304,8 @@ test('classifies API, MCP, and invalid final output without exposing raw errors'
           throw {
             status: 429,
             request_id: 'req_safe123',
-            error: { code: 'rate_limit', param: 'model', message: 'secret prompt payload' }
+            error: { code: 'rate_limit', param: 'model', message: 'secret prompt payload' },
+            usage: usage(12, 3)
           };
         }
       },
@@ -323,6 +324,7 @@ test('classifies API, MCP, and invalid final output without exposing raw errors'
       providerCode: 'rate_limit',
       providerParam: 'model'
     });
+    assert.deepEqual(result.usage, usage(12, 3));
     assert.doesNotMatch(JSON.stringify(result.error), /secret/);
     assert.equal(gateway.closes, 1);
   });

@@ -111,8 +111,9 @@ function parseResponse(value: unknown): ModelTurnResult {
   if (!isRecord(value)) {
     throw new Error('DeepSeek returned an invalid response.');
   }
+  const usage = parseUsage(value.usage);
   if (value.status === 'incomplete' || value.status === 'failed') {
-    throw new DeepSeekResponseStatusError(value.status);
+    throw new DeepSeekResponseStatusError(value.status, responseFailureCode(value), usage);
   }
   if (value.status !== 'completed' || !Array.isArray(value.output)) {
     throw new Error('DeepSeek returned an invalid response.');
@@ -165,18 +166,40 @@ function parseResponse(value: unknown): ModelTurnResult {
     historyItems,
     functionCalls,
     ...(finalText ? { finalText } : {}),
-    usage: parseUsage(value.usage)
+    usage
   };
 }
 
 class DeepSeekResponseStatusError extends Error {
   readonly error: { code: string };
+  readonly usage: ModelUsage;
 
-  constructor(status: 'incomplete' | 'failed') {
+  constructor(status: 'incomplete' | 'failed', code: string, usage: ModelUsage) {
     super(`DeepSeek response ${status}.`);
     this.name = 'DeepSeekResponseStatusError';
-    this.error = { code: `response_${status}` };
+    this.error = { code };
+    this.usage = usage;
   }
+}
+
+function responseFailureCode(value: Record<string, unknown>): string {
+  const status = value.status as 'incomplete' | 'failed';
+  const details = status === 'incomplete' && isRecord(value.incomplete_details)
+    ? value.incomplete_details
+    : status === 'failed' && isRecord(value.error)
+      ? value.error
+      : undefined;
+  const detail = safeProviderCode(details?.reason) ?? safeProviderCode(details?.code);
+  return `response_${status}${detail ? `:${detail}` : ''}`;
+}
+
+function safeProviderCode(value: unknown): string | undefined {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 96
+    && /^[A-Za-z0-9._-]+$/.test(value)
+    ? value
+    : undefined;
 }
 
 function parseUsage(value: unknown): ModelUsage {

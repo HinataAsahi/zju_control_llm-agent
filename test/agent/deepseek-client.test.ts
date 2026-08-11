@@ -165,16 +165,28 @@ test('rejects missing keys and unsupported response output', async () => {
 
 test('rejects provider-declared incomplete and failed responses before parsing output', async () => {
   for (const status of ['incomplete', 'failed'] as const) {
+    const providerCode = status === 'incomplete'
+      ? 'response_incomplete:max_output_tokens'
+      : 'response_failed:server_error';
     const responses: ResponsesApi = {
       async create() {
         return {
           status,
+          ...(status === 'incomplete'
+            ? { incomplete_details: { reason: 'max_output_tokens' } }
+            : { error: { code: 'server_error', message: 'private provider detail' } }),
           output: [{
             type: 'message',
             role: 'assistant',
             content: [{ type: 'output_text', text: '{"status":"completed"}' }]
           }],
-          usage: zeroUsage()
+          usage: {
+            input_tokens: 123,
+            input_tokens_details: { cached_tokens: 23 },
+            output_tokens: 45,
+            output_tokens_details: { reasoning_tokens: 5 },
+            total_tokens: 168
+          }
         };
       }
     };
@@ -182,7 +194,15 @@ test('rejects provider-declared incomplete and failed responses before parsing o
     await assert.rejects(
       createDeepSeekModelClient({ apiKey: 'test-key', responses }).createTurn(request()),
       error => error instanceof Error
-        && (error as Error & { error?: { code?: string } }).error?.code === `response_${status}`
+        && (error as Error & { error?: { code?: string } }).error?.code === providerCode
+        && JSON.stringify(error).includes('private provider detail') === false
+        && JSON.stringify((error as Error & { usage?: unknown }).usage) === JSON.stringify({
+          inputTokens: 123,
+          cachedInputTokens: 23,
+          outputTokens: 45,
+          reasoningOutputTokens: 5,
+          totalTokens: 168
+        })
     );
   }
 });

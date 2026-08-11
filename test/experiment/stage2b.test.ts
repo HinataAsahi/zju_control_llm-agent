@@ -10,6 +10,7 @@ import type {
   ModelTurnResult
 } from '../../src/agent/model-client.js';
 import {
+  main,
   parseStage2bArgs,
   runStage2bSmoke,
   stage2bExitCode
@@ -180,6 +181,31 @@ test('returns a safe configuration record when experiment setup fails', async t 
   assert.equal(record.turns, 0);
   assert.deepEqual(record.error, { category: 'configuration', code: 'SETUP_FAILED' });
   assert.doesNotMatch(JSON.stringify(record), /must not be reached/);
+});
+
+test('main records a safe setup failure when the API key is missing', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+  let output = '';
+
+  const exitCode = await main(['smoke'], {
+    repositoryRoot,
+    env: {},
+    writeOutput: text => { output += text; },
+    dependencies: {
+      createModelClient: () => { throw new Error('must not be reached'); },
+      connectTools: async () => { throw new Error('must not be reached'); }
+    }
+  });
+
+  assert.equal(exitCode, 1);
+  const summary = JSON.parse(output) as { recordPath: string; status: string };
+  assert.equal(summary.status, 'infrastructure-error');
+  const record = JSON.parse(await readFile(summary.recordPath, 'utf8')) as Record<string, unknown>;
+  assert.deepEqual(record.error, { category: 'configuration', code: 'SETUP_FAILED' });
+  assert.equal((await lstat(summary.recordPath)).mode & 0o777, 0o600);
+  assert.doesNotMatch(JSON.stringify(record), /DEEPSEEK_API_KEY|must not be reached/);
 });
 
 test('accepts one nested answer in a fenced provider wrapper', async t => {

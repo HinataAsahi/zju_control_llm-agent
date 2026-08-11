@@ -141,6 +141,8 @@ async function runCore<T>(
         signal: AbortSignal.any([totalSignal, requestController.signal])
       });
     } catch (error) {
+      const billedUsage = errorUsage(error);
+      if (billedUsage) addUsage(state.usage, billedUsage);
       const code = totalSignal.aborted
         ? 'TOTAL_TIMEOUT'
         : requestController.signal.aborted
@@ -312,6 +314,28 @@ function providerMetadata(
     ...(requestId !== undefined ? { requestId } : {}),
     ...(providerCode !== undefined ? { providerCode } : {}),
     ...(providerParam !== undefined ? { providerParam } : {})
+  };
+}
+
+function errorUsage(error: unknown): ModelUsage | undefined {
+  if (!isRecord(error) || !isRecord(error.usage)) return undefined;
+  const usage = error.usage;
+  const fields = [
+    'inputTokens',
+    'cachedInputTokens',
+    'outputTokens',
+    'reasoningOutputTokens',
+    'totalTokens'
+  ] as const;
+  if (!fields.every(field => Number.isSafeInteger(usage[field]) && (usage[field] as number) >= 0)) {
+    return undefined;
+  }
+  return {
+    inputTokens: usage.inputTokens as number,
+    cachedInputTokens: usage.cachedInputTokens as number,
+    outputTokens: usage.outputTokens as number,
+    reasoningOutputTokens: usage.reasoningOutputTokens as number,
+    totalTokens: usage.totalTokens as number
   };
 }
 

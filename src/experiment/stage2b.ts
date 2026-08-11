@@ -41,6 +41,13 @@ export interface Stage2bCommand {
   mode: 'smoke';
 }
 
+export interface Stage2bMainOptions {
+  repositoryRoot?: string;
+  env?: NodeJS.ProcessEnv;
+  dependencies?: Partial<Stage2bDependencies>;
+  writeOutput?(text: string): void;
+}
+
 const STAGE2B_INSTRUCTIONS = [
   'Complete the task using the discovered MCP tools when applicable.',
   'After using tools, return only one JSON object with exactly these fields and no other fields:',
@@ -68,7 +75,7 @@ export function stage2bExitCode(
 
 export async function runStage2bSmoke(options: {
   repositoryRoot: string;
-  apiKey: string;
+  apiKey?: string;
   dependencies?: Partial<Stage2bDependencies>;
 }): Promise<Stage2bRecord> {
   const repositoryRoot = resolve(options.repositoryRoot);
@@ -85,6 +92,7 @@ export async function runStage2bSmoke(options: {
     client: ModelTurnClient;
   };
   try {
+    const apiKey = requireDeepSeekApiKey({ DEEPSEEK_API_KEY: options.apiKey });
     const tasks = await loadTasks(experimentRoot);
     const task = tasks.find(candidate => candidate.id === 'T1');
     if (!task) throw new Error('Stage 2B requires task T1.');
@@ -101,7 +109,7 @@ export async function runStage2bSmoke(options: {
       task,
       workspace,
       outputSchema: outputSchemaValue,
-      client: dependencies.createModelClient(options.apiKey)
+      client: dependencies.createModelClient(apiKey)
     };
   } catch {
     return infrastructureRecord({
@@ -199,13 +207,20 @@ function infrastructureRecord(options: {
   };
 }
 
-export async function main(argv = process.argv.slice(2)): Promise<0 | 1> {
+export async function main(
+  argv = process.argv.slice(2),
+  options: Stage2bMainOptions = {}
+): Promise<0 | 1> {
   parseStage2bArgs(argv);
-  const repositoryRoot = process.cwd();
-  const apiKey = requireDeepSeekApiKey();
-  const record = await runStage2bSmoke({ repositoryRoot, apiKey });
+  const repositoryRoot = options.repositoryRoot ?? process.cwd();
+  const apiKey = (options.env ?? process.env).DEEPSEEK_API_KEY;
+  const record = await runStage2bSmoke({
+    repositoryRoot,
+    ...(apiKey !== undefined ? { apiKey } : {}),
+    ...(options.dependencies ? { dependencies: options.dependencies } : {})
+  });
   const recordPath = await writeStage2bRecord(repositoryRoot, record);
-  process.stdout.write(`${JSON.stringify({
+  const output = `${JSON.stringify({
     runId: record.runId,
     status: record.status,
     taskSuccess: record.taskSuccess,
@@ -213,7 +228,8 @@ export async function main(argv = process.argv.slice(2)): Promise<0 | 1> {
     toolCalls: record.toolCalls,
     usage: record.usage,
     recordPath
-  }, null, 2)}\n`);
+  }, null, 2)}\n`;
+  (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
   return stage2bExitCode(record);
 }
 
