@@ -74,6 +74,21 @@ test('extracts one bare JSON object from prose and rejects ambiguous objects', (
   assert.throws(() => parseExperimentAnswerText(`${json}\n${json}`));
 });
 
+test('unwraps one nested answer object and rejects ambiguous answer candidates', () => {
+  const answer = { status: 'completed', answer: 3, explanation: 'done' };
+
+  assert.deepEqual(parseExperimentAnswerText(JSON.stringify({
+    type: 'response',
+    name: 'experiment_answer',
+    metadata: {},
+    result: answer
+  })), answer);
+  assert.throws(() => parseExperimentAnswerText(JSON.stringify({
+    first: answer,
+    second: answer
+  })));
+});
+
 test('compares expected JSON canonically while preserving array order', () => {
   const answer = {
     status: 'completed' as const,

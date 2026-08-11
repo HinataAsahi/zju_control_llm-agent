@@ -111,13 +111,15 @@ test('accepts only the explicit smoke command', () => {
   assert.throws(() => parseStage2bArgs(['formal']), /smoke/);
 });
 
-test('accepts one bare JSON object with provider prose and an extra top-level field', async t => {
+test('accepts one nested answer in a fenced provider wrapper', async t => {
   const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
   await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
   const model = new T1FakeModel([
     'The result is:',
-    '{"status":"completed","answer":3,"explanation":"Counted with jq.","tool":"jq_query"}',
+    '```json',
+    '{"type":"response","name":"experiment_answer","metadata":{},"result":{"status":"completed","answer":3,"explanation":"Counted with jq.","tool":"jq_query"}}',
+    '```',
     'This follows from the tool output.'
   ].join('\n'));
 
@@ -166,6 +168,7 @@ test('records safe structural diagnostics for an invalid final answer', async t 
     markdownFenceUnwrapped: true,
     jsonParseSucceeded: true,
     topLevelType: 'object',
+    nestedAnswerCandidateCount: 0,
     fields: {
       status: { present: true, type: 'string' },
       answer: { present: true, type: 'string' },

@@ -30,7 +30,7 @@ export function parseExperimentAnswer(value: unknown): ExperimentAnswer {
 
 export function parseExperimentAnswerText(text: string): ExperimentAnswer {
   const parsed: unknown = JSON.parse(jsonDocument(text).text);
-  return parseExperimentAnswer(projectAnswerFields(parsed));
+  return parseExperimentAnswer(projectAnswerFields(selectAnswerObject(parsed)));
 }
 
 export function diagnoseExperimentAnswer(text: string): Record<string, unknown> {
@@ -54,6 +54,9 @@ export function diagnoseExperimentAnswer(text: string): Record<string, unknown> 
 
   diagnostics.jsonParseSucceeded = true;
   diagnostics.topLevelType = jsonType(parsed);
+  const nestedCandidates = findNestedAnswerObjects(parsed);
+  diagnostics.nestedAnswerCandidateCount = nestedCandidates.values.length;
+  if (nestedCandidates.truncated) diagnostics.answerCandidateScanTruncated = true;
   if (isRecord(parsed)) {
     const expectedFields = ['status', 'answer', 'explanation'] as const;
     diagnostics.fields = Object.fromEntries(expectedFields.map(field => [field, {
@@ -122,6 +125,51 @@ function projectAnswerFields(value: unknown): unknown {
     answer: value.answer,
     explanation: value.explanation
   };
+}
+
+function selectAnswerObject(value: unknown): unknown {
+  if (hasAnswerFields(value)) return value;
+  const candidates = findNestedAnswerObjects(value);
+  return !candidates.truncated && candidates.values.length === 1
+    ? candidates.values[0]
+    : value;
+}
+
+function findNestedAnswerObjects(value: unknown): {
+  values: Record<string, unknown>[];
+  truncated: boolean;
+} {
+  const queue = childValues(value).map(child => ({ value: child, depth: 1 }));
+  const values: Record<string, unknown>[] = [];
+  let visited = 0;
+
+  while (queue.length > 0 && visited < 256) {
+    const current = queue.shift()!;
+    visited += 1;
+    if (hasAnswerFields(current.value)) {
+      values.push(current.value);
+      continue;
+    }
+    if (current.depth < 8) {
+      queue.push(...childValues(current.value).map(child => ({
+        value: child,
+        depth: current.depth + 1
+      })));
+    }
+  }
+  return { values, truncated: queue.length > 0 };
+}
+
+function hasAnswerFields(value: unknown): value is Record<string, unknown> {
+  return isRecord(value)
+    && Object.hasOwn(value, 'status')
+    && Object.hasOwn(value, 'answer')
+    && Object.hasOwn(value, 'explanation');
+}
+
+function childValues(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  return isRecord(value) ? Object.values(value) : [];
 }
 
 function jsonDocument(text: string): {
