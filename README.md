@@ -56,7 +56,7 @@
 - Stage 2B 入口可为 T1、T2、T6、T7 准备隔离工作区，运行 `Explicit`、`Description` 或 `Skill` 条件烟雾实验并写入本地记录；
 - 本地 Schema 与 Zod 负责最终答案校验，供应商返回的内容不会未经验证直接成为实验结果。
 
-当前真实运行固定使用 `deepseek-v4-flash`，关闭思考模式和 SDK 自动重试，并设置以下边界：最多 5 轮、最多 4 次 MCP 调用、单次模型请求 60 秒、整次运行 120 秒。额外的一轮用于在工具调用额度耗尽后提交最终答案，不会放宽工具调用次数。只要一轮同时出现文本和函数调用，我会优先执行工具并丢弃该轮的未完成文本，等待后续纯文本终局。
+当前新建的真实运行固定使用 `deepseek-v4-flash`，关闭思考模式和 SDK 自动重试，并设置以下边界：最多 6 轮、最多 5 次 MCP 调用、单次模型请求 60 秒、整次运行 120 秒。额外的一轮用于在工具调用额度耗尽后提交最终答案，不会放宽工具调用次数。只要一轮同时出现文本和函数调用，我会优先执行工具并丢弃该轮的未完成文本，等待后续纯文本终局。
 
 自建 API Runner 不具备 Codex 的自动 Skill 发现机制。`Description` 条件只使用公共任务提示和 MCP 工具描述；`Skill` 条件复用相同任务提示、工具定义和输出 Schema，并把工作区内隔离复制的 `SKILL.md` 追加到模型 instructions。测试会比较两种条件的请求结构，确保除 Skill instructions 外没有其他输入差异。
 
@@ -201,7 +201,7 @@ unset DEEPSEEK_API_KEY
 npm run experiment:stage2b -- plan --repetitions 2
 ```
 
-`plan` 固定展开 T2、T7 与三种条件的笛卡尔积，`--repetitions` 接受 `1..100` 的整数，默认为 1。它不读取 API 密钥、不连接 MCP、不会创建本地运行记录，也不会产生费用。新计划固定 `sampling.temperature: 0`，减少条件对比中的随机性；输出中的 `totalRuns` 是计划实验数，`upperBounds.modelRequests` 和 `upperBounds.toolCalls` 分别按每次实验最多 5 轮、4 次工具调用计算，是理论安全上限而不是实际用量或费用预测。
+`plan` 固定展开 T2、T7 与三种条件的笛卡尔积，`--repetitions` 接受 `1..100` 的整数，默认为 1。它不读取 API 密钥、不连接 MCP、不会创建本地运行记录，也不会产生费用。新计划固定 `sampling.temperature: 0`，减少条件对比中的随机性；输出中的 `totalRuns` 是计划实验数，`upperBounds.modelRequests` 和 `upperBounds.toolCalls` 分别按每次实验最多 6 轮、5 次工具调用计算，是理论安全上限而不是实际用量或费用预测。
 
 确认规模后，我可以把相同计划冻结为一个本地批次清单：
 
@@ -209,7 +209,7 @@ npm run experiment:stage2b -- plan --repetitions 2
 npm run experiment:stage2b -- prepare --repetitions 2
 ```
 
-`prepare` 同样不读取密钥、不连接模型或 MCP，也不会执行实验。它在 `.experiment-runs/stage-2b/batches/<batch-id>/manifest.json` 保存模型配置、采样温度、运行限制和稳定的 `runKey`，所有实验项初始为 `pending`。批次目录权限为 `0700`，清单文件为 `0600`；清单和后续状态仍属于本地实验记录，不会提交到 GitHub。执行阶段将复用这份清单，并让每个条目依次经过 `pending`、`running` 和终态，以支持中断后的断点恢复。旧清单没有采样字段时会被解释为 `temperature: null`，继续省略请求参数并使用供应商默认值，不会伪装成温度 0 实验。
+`prepare` 同样不读取密钥、不连接模型或 MCP，也不会执行实验。它在 `.experiment-runs/stage-2b/batches/<batch-id>/manifest.json` 保存模型配置、采样温度、运行限制和稳定的 `runKey`，所有实验项初始为 `pending`。批次目录权限为 `0700`，清单文件为 `0600`；清单和后续状态仍属于本地实验记录，不会提交到 GitHub。执行阶段将复用这份清单，并让每个条目依次经过 `pending`、`running` 和终态，以支持中断后的断点恢复。旧清单没有采样字段时会被解释为 `temperature: null`，继续省略请求参数并使用供应商默认值，不会伪装成温度 0 实验；旧清单冻结的 5 轮、4 次调用限制也会原样保留，新预算不会回写历史批次。
 
 准备好 API 密钥后，我可以只执行指定批次中的第一个 `pending` 条目：
 
@@ -240,4 +240,4 @@ docs/learning-notes/             前期学习材料
 
 ## 下一步
 
-Stage 2B 已完成四类 Explicit 代表路径、T2/T7 的 Description/Skill 真实单次对比，以及计划预览、私有批次清单、并发领取保护、单条顺序执行、中断对账和采样温度记录。下一步将逐项执行冻结的批次，先检查每次真实运行的记录质量，再生成脱敏的结构化汇总与带不确定性说明的统计报告。
+Stage 2B 已完成一个供应商默认温度、5/4 预算的六项试运行。它暴露出三项观察在第五次调用形成正确查询却被预算截断，因此新批次预算已调整为 6/5，同时保留旧清单的原始限制。下一步将创建温度 0 的新批次并逐项质检；完成后再生成脱敏的结构化汇总，并把试运行与正式观察分开报告。
