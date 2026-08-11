@@ -38,7 +38,8 @@ test('summarizes pilot and calibrated batches without publishing raw traces', ()
   const serialized = JSON.stringify(report);
   const markdown = renderStage2bComparisonMarkdown(report);
 
-  assert.equal(report.scope, 'descriptive-single-observation');
+  assert.equal(report.version, 2);
+  assert.equal(report.scope, 'descriptive-observations');
   assert.deepEqual(report.batches.map(batch => ({
     role: batch.role,
     completed: batch.counts.completed,
@@ -70,11 +71,53 @@ test('summarizes pilot and calibrated batches without publishing raw traces', ()
     usage: usage(250)
   });
   assert.doesNotMatch(serialized, /recordRunId|toolEvents|finalAnswer|secret|\/home\//i);
-  assert.match(markdown, /描述性单次观测/);
+  assert.match(markdown, /描述性观测/);
   assert.match(markdown, /pilot.*2\/6.*4/s);
   assert.match(markdown, /calibrated.*6\/6.*0/s);
   assert.match(markdown, /恢复成功（可判定）/);
   assert.match(markdown, /不能归因|不能直接归因/);
+  assert.doesNotMatch(markdown, /固定配置 repeat|每个任务与条件有三次/);
+});
+
+test('combines one calibrated run and two repeat runs into n=3 cell statistics', () => {
+  const calibrated = batchFixture('calibrated', 0, 6, 5, successfulRecords(200));
+  const repeat = batchFixture('repeat', 0, 6, 5, repeatedSuccessfulRecords(300, 400));
+
+  const report = summarizeStage2bBatches([calibrated, repeat]);
+  const comparison = report.repeatedComparison;
+
+  assert.ok(comparison);
+  assert.deepEqual(comparison.sourceRoles, ['calibrated', 'repeat']);
+  assert.equal(comparison.totalRuns, 18);
+  assert.equal(comparison.observationsPerCell, 3);
+  assert.deepEqual(comparison.cells[0], {
+    taskId: 'T2',
+    condition: 'explicit',
+    observations: 3,
+    completed: 3,
+    taskSuccess: 3,
+    recoverySuccess: 0,
+    recoveryApplicable: 0,
+    turns: { min: 4, max: 4, mean: 4 },
+    toolCalls: { min: 3, max: 3, mean: 3 },
+    totalTokens: { min: 200, max: 400, mean: 300, sum: 900 }
+  });
+  assert.deepEqual(comparison.cells[5], {
+    taskId: 'T7',
+    condition: 'skill',
+    observations: 3,
+    completed: 3,
+    taskSuccess: 3,
+    recoverySuccess: 3,
+    recoveryApplicable: 3,
+    turns: { min: 5, max: 5, mean: 5 },
+    toolCalls: { min: 4, max: 4, mean: 4 },
+    totalTokens: { min: 250, max: 450, mean: 350, sum: 1_050 }
+  });
+  const markdown = renderStage2bComparisonMarkdown(report);
+  assert.match(markdown, /固定配置重复观测.*n=3/s);
+  assert.match(markdown, /T2.*explicit.*N\/A/);
+  assert.doesNotMatch(markdown, /0\/0/);
 });
 
 test('rejects a batch whose record does not match its manifest configuration', () => {
@@ -92,6 +135,16 @@ test('rejects a batch whose record does not match its manifest configuration', (
   };
 
   assert.throws(() => summarizeStage2bBatches([input]), /sampling.*manifest/i);
+});
+
+test('rejects repeated statistics across different execution limits', () => {
+  const calibrated = batchFixture('calibrated', 0, 6, 5, successfulRecords(200));
+  const repeat = batchFixture('repeat', 0, 5, 4, repeatedSuccessfulRecords(300, 400));
+
+  assert.throws(
+    () => summarizeStage2bBatches([calibrated, repeat]),
+    /repeat configuration.*calibrated/i
+  );
 });
 
 test('loads private records and writes deterministic public Stage 2B artifacts', async t => {
@@ -131,18 +184,22 @@ test('runs the offline report command without reading an API key', async t => {
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
   const pilot = batchFixture('pilot', null, 5, 4, successfulRecords(100));
   const calibrated = batchFixture('calibrated', 0, 6, 5, successfulRecords(200));
+  const repeat = batchFixture('repeat', 0, 6, 5, repeatedSuccessfulRecords(300, 400));
   await persistBatch(repositoryRoot, pilot);
   await persistBatch(repositoryRoot, calibrated);
+  await persistBatch(repositoryRoot, repeat);
   const argv = [
     'report',
     '--pilot-batch', pilot.manifest.batchId,
-    '--calibrated-batch', calibrated.manifest.batchId
+    '--calibrated-batch', calibrated.manifest.batchId,
+    '--repeat-batch', repeat.manifest.batchId
   ];
 
   assert.deepEqual(parseStage2bArgs(argv), {
     mode: 'report',
     pilotBatchId: pilot.manifest.batchId,
-    calibratedBatchId: calibrated.manifest.batchId
+    calibratedBatchId: calibrated.manifest.batchId,
+    repeatBatchId: repeat.manifest.batchId
   });
   assert.throws(
     () => parseStage2bArgs(['report', '--pilot-batch', pilot.manifest.batchId]),
@@ -174,6 +231,7 @@ test('runs the offline report command without reading an API key', async t => {
     status: 'reported',
     pilotBatchId: pilot.manifest.batchId,
     calibratedBatchId: calibrated.manifest.batchId,
+    repeatBatchId: repeat.manifest.batchId,
     jsonPath: join(repositoryRoot, 'experiments/stage-2b/results/observations.json'),
     markdownPath: join(repositoryRoot, 'experiments/stage-2b/results/report.zh.md')
   });
@@ -190,24 +248,41 @@ test('uses a report-specific safe CLI failure message', () => {
   );
 });
 
-function batchFixture(
-  role: 'pilot' | 'calibrated',
+function batchFixture<Role extends 'pilot' | 'calibrated' | 'repeat'>(
+  role: Role,
   temperature: number | null,
   maxTurns: number,
   maxToolCalls: number,
   records: Stage2bRecord[]
 ): {
-  role: 'pilot' | 'calibrated';
+  role: Role;
   manifest: Stage2bBatchManifest;
   records: Stage2bRecord[];
 } {
   const batchId = `stage2b-batch-20260811T080000000Z-${role}`;
-  const configuredRecords = records.map(record => ({
+  const configuredRecords = records.map((record, index) => ({
     ...record,
-    runId: `${record.runId}-${role}`,
+    runId: `${record.runId}-${role}-${index + 1}`,
     sampling: { temperature },
     limits: { maxTurns, maxToolCalls, requestTimeoutMs: 60_000, totalTimeoutMs: 120_000 }
   }));
+  const repetitions = new Map<string, number>();
+  const runs = configuredRecords.map(record => {
+    const key = `${record.taskId}-${record.condition}`;
+    const repetition = (repetitions.get(key) ?? 0) + 1;
+    repetitions.set(key, repetition);
+    return {
+      runKey: `${key}-r${repetition}`,
+      taskId: record.taskId as 'T2' | 'T7',
+      condition: record.condition,
+      repetition,
+      status: record.status === 'completed' ? 'completed' as const : 'failed' as const,
+      recordRunId: record.runId,
+      recordStatus: record.status,
+      taskSuccess: record.taskSuccess,
+      recoverySuccess: record.recoverySuccess
+    };
+  });
   return {
     role,
     manifest: {
@@ -218,20 +293,10 @@ function batchFixture(
       model: 'deepseek-v4-flash',
       thinking: 'none',
       sampling: { temperature },
-      repetitions: 1,
+      repetitions: Math.max(...repetitions.values()),
       totalRuns: configuredRecords.length,
       limits: { maxTurns, maxToolCalls, requestTimeoutMs: 60_000, totalTimeoutMs: 120_000 },
-      runs: configuredRecords.map(record => ({
-        runKey: `${record.taskId}-${record.condition}-r1`,
-        taskId: record.taskId as 'T2' | 'T7',
-        condition: record.condition,
-        repetition: 1,
-        status: record.status === 'completed' ? 'completed' : 'failed',
-        recordRunId: record.runId,
-        recordStatus: record.status,
-        taskSuccess: record.taskSuccess,
-        recoverySuccess: record.recoverySuccess
-      }))
+      runs
     },
     records: configuredRecords
   };
@@ -298,6 +363,15 @@ function successfulRecords(firstTotalTokens: number): Stage2bRecord[] {
     runFixture('T7', 'description', 'completed', true, true, 5, 4, firstTotalTokens + 40),
     runFixture('T7', 'skill', 'completed', true, true, 5, 4, firstTotalTokens + 50)
   ];
+}
+
+function repeatedSuccessfulRecords(
+  firstTotalTokens: number,
+  secondTotalTokens: number
+): Stage2bRecord[] {
+  const first = successfulRecords(firstTotalTokens);
+  const second = successfulRecords(secondTotalTokens);
+  return first.flatMap((record, index) => [record, second[index]!]);
 }
 
 async function persistBatch(

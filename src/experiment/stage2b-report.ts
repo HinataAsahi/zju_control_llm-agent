@@ -11,7 +11,7 @@ import type {
 import { readStage2bBatchManifest } from './stage2b-batch.js';
 import type { Stage2bRecord } from './stage2b-record.js';
 
-export type Stage2bReportRole = 'pilot' | 'calibrated';
+export type Stage2bReportRole = 'pilot' | 'calibrated' | 'repeat';
 
 export type Stage2bReportRecord = Pick<
   Stage2bRecord,
@@ -75,9 +75,36 @@ export interface Stage2bPublicBatch {
 }
 
 export interface Stage2bPublicReport {
-  version: 1;
-  scope: 'descriptive-single-observation';
+  version: 2;
+  scope: 'descriptive-observations';
   batches: Stage2bPublicBatch[];
+  repeatedComparison?: Stage2bRepeatedComparison;
+}
+
+export interface Stage2bRepeatedComparison {
+  sourceRoles: ['calibrated', 'repeat'];
+  totalRuns: number;
+  observationsPerCell: number;
+  cells: Stage2bRepeatedCell[];
+}
+
+export interface Stage2bRepeatedCell {
+  taskId: 'T2' | 'T7';
+  condition: 'explicit' | 'description' | 'skill';
+  observations: number;
+  completed: number;
+  taskSuccess: number;
+  recoverySuccess: number;
+  recoveryApplicable: number;
+  turns: MetricSummary;
+  toolCalls: MetricSummary;
+  totalTokens: MetricSummary & { sum: number };
+}
+
+export interface MetricSummary {
+  min: number;
+  max: number;
+  mean: number;
 }
 
 const limitsSchema = z.strictObject({
@@ -125,18 +152,24 @@ export function summarizeStage2bBatches(inputs: Stage2bReportInput[]): Stage2bPu
   if (new Set(inputs.map(input => input.role)).size !== inputs.length) {
     throw new Error('Stage 2B report roles must be unique.');
   }
+  const batches = inputs.map(summarizeBatch);
+  const repeatedComparison = buildRepeatedComparison(batches);
   return {
-    version: 1,
-    scope: 'descriptive-single-observation',
-    batches: inputs.map(summarizeBatch)
+    version: 2,
+    scope: 'descriptive-observations',
+    batches,
+    ...(repeatedComparison ? { repeatedComparison } : {})
   };
 }
 
 export function renderStage2bComparisonMarkdown(report: Stage2bPublicReport): string {
+  const hasRepeatedComparison = report.repeatedComparison !== undefined;
   const lines = [
-    '# Stage 2B 描述性单次观测报告',
+    '# Stage 2B 描述性观测报告',
     '',
-    '本报告区分预算校准前的 pilot 与校准后的 calibrated 批次。每个任务与条件只有一次观测，因此只描述本次运行，不进行统计推断。',
+    hasRepeatedComparison
+      ? '本报告区分预算校准前的 pilot、校准基线 calibrated 与固定配置 repeat 批次，只进行描述性汇总，不进行显著性检验或因果推断。'
+      : '本报告区分预算校准前的 pilot 与校准后的 calibrated 批次，只进行描述性汇总，不进行显著性检验或因果推断。',
     '',
     '## 批次配置',
     '',
@@ -155,13 +188,25 @@ export function renderStage2bComparisonMarkdown(report: Stage2bPublicReport): st
     '',
     '| 角色 | 完成 | 任务成功 | 恢复成功（可判定） | 限制中止 | 回合 | 工具调用 | 总 token |',
     '|---|---:|---:|---:|---:|---:|---:|---:|',
-    ...report.batches.map(batch => `| ${batch.role} | ${batch.counts.completed}/${batch.counts.total} | ${batch.counts.taskSuccess}/${batch.counts.total} | ${batch.counts.recoverySuccess}/${batch.counts.recoveryApplicable} | ${batch.counts.limitExceeded} | ${batch.turns} | ${batch.toolCalls} | ${batch.usage.totalTokens} |`),
+    ...report.batches.map(batch => `| ${batch.role} | ${batch.counts.completed}/${batch.counts.total} | ${batch.counts.taskSuccess}/${batch.counts.total} | ${formatRatio(batch.counts.recoverySuccess, batch.counts.recoveryApplicable)} | ${batch.counts.limitExceeded} | ${batch.turns} | ${batch.toolCalls} | ${batch.usage.totalTokens} |`)
+  ];
+  if (report.repeatedComparison) {
+    lines.push(
+      '',
+      `## 固定配置重复观测（n=${report.repeatedComparison.observationsPerCell}）`,
+      '',
+      '| 任务 | 条件 | 完成 | 任务成功 | 恢复成功（可判定） | 回合 min-max / mean | 工具调用 min-max / mean | Token min-max / mean |',
+      '|---|---|---:|---:|---:|---:|---:|---:|',
+      ...report.repeatedComparison.cells.map(cell => `| ${cell.taskId} | ${cell.condition} | ${cell.completed}/${cell.observations} | ${cell.taskSuccess}/${cell.observations} | ${formatRatio(cell.recoverySuccess, cell.recoveryApplicable)} | ${formatMetric(cell.turns)} | ${formatMetric(cell.toolCalls)} | ${formatMetric(cell.totalTokens)} |`)
+    );
+  }
+  lines.push(
     '',
     '## 逐项观测',
     '',
     '| 角色 | 任务 | 条件 | 状态 | 任务成功 | 恢复成功 | 回合 | 工具调用 | 总 token |',
     '|---|---|---|---|---|---|---:|---:|---:|'
-  ];
+  );
   for (const batch of report.batches) {
     for (const run of batch.runs) {
       lines.push(`| ${batch.role} | ${run.taskId} | ${run.condition} | ${run.status} | ${formatNullable(run.taskSuccess)} | ${formatNullable(run.recoverySuccess)} | ${run.turns} | ${run.toolCalls} | ${run.usage.totalTokens} |`);
@@ -172,7 +217,10 @@ export function renderStage2bComparisonMarkdown(report: Stage2bPublicReport): st
     '## 解读边界',
     '',
     '- pilot 与 calibrated 同时改变了温度和调用预算，结果差异不能直接归因于其中任一变量。',
-    '- 每个任务与条件只有一次运行，不能据此判断 Explicit、Description 或 Skill 的稳定优劣。',
+    ...(hasRepeatedComparison
+      ? ['- calibrated 与 repeat 使用相同配置，合并后每个任务与条件有三次观测；样本仍小，只报告范围和均值。']
+      : ['- 每个任务与条件只有一次 calibrated 观测，因此不报告范围或均值。']),
+    '- 当前样本不能证明 Explicit、Description 或 Skill 之间存在稳定差异。',
     '- 恢复成功率只统计 `recoverySuccess` 非空的可判定记录；因限制中止而未完成的恢复任务显示为 N/A。',
     '- 公开汇总不包含原始模型响应、工具参数、工具输出、最终答案解释、记录 ID、绝对路径或凭据。',
     ''
@@ -184,6 +232,7 @@ export async function writeStage2bComparisonReport(options: {
   repositoryRoot: string;
   pilotBatchId: string;
   calibratedBatchId: string;
+  repeatBatchId?: string;
 }): Promise<{
   report: Stage2bPublicReport;
   jsonPath: string;
@@ -192,7 +241,10 @@ export async function writeStage2bComparisonReport(options: {
   const repositoryRoot = resolve(options.repositoryRoot);
   const inputs = await Promise.all([
     loadBatch(repositoryRoot, 'pilot', options.pilotBatchId),
-    loadBatch(repositoryRoot, 'calibrated', options.calibratedBatchId)
+    loadBatch(repositoryRoot, 'calibrated', options.calibratedBatchId),
+    ...(options.repeatBatchId
+      ? [loadBatch(repositoryRoot, 'repeat', options.repeatBatchId)]
+      : [])
   ]);
   const report = summarizeStage2bBatches(inputs);
   const resultsRoot = resolve(repositoryRoot, 'experiments/stage-2b/results');
@@ -244,6 +296,51 @@ function summarizeBatch(input: Stage2bReportInput): Stage2bPublicBatch {
     turns: runs.reduce((sum, run) => sum + run.turns, 0),
     toolCalls: runs.reduce((sum, run) => sum + run.toolCalls, 0),
     runs
+  };
+}
+
+function buildRepeatedComparison(
+  batches: Stage2bPublicBatch[]
+): Stage2bRepeatedComparison | undefined {
+  const repeat = batches.find(batch => batch.role === 'repeat');
+  if (!repeat) return undefined;
+  const calibrated = batches.find(batch => batch.role === 'calibrated');
+  if (!calibrated) throw new Error('Stage 2B repeat reporting requires a calibrated batch.');
+  if (!sameBatchConfiguration(calibrated, repeat)) {
+    throw new Error('Stage 2B repeat configuration does not match the calibrated batch.');
+  }
+
+  const allRuns = [...calibrated.runs, ...repeat.runs];
+  const cells = (['T2', 'T7'] as const).flatMap(taskId =>
+    (['explicit', 'description', 'skill'] as const).map(condition => {
+      const runs = allRuns.filter(run => run.taskId === taskId && run.condition === condition);
+      if (runs.length === 0) throw new Error(`Stage 2B repeated cell is empty: ${taskId}/${condition}.`);
+      return {
+        taskId,
+        condition,
+        observations: runs.length,
+        completed: runs.filter(run => run.status === 'completed').length,
+        taskSuccess: runs.filter(run => run.taskSuccess === true).length,
+        recoverySuccess: runs.filter(run => run.recoverySuccess === true).length,
+        recoveryApplicable: runs.filter(run => run.recoverySuccess !== null).length,
+        turns: summarizeMetric(runs.map(run => run.turns)),
+        toolCalls: summarizeMetric(runs.map(run => run.toolCalls)),
+        totalTokens: {
+          ...summarizeMetric(runs.map(run => run.usage.totalTokens)),
+          sum: runs.reduce((sum, run) => sum + run.usage.totalTokens, 0)
+        }
+      };
+    })
+  );
+  const observationsPerCell = cells[0]?.observations ?? 0;
+  if (cells.some(cell => cell.observations !== observationsPerCell)) {
+    throw new Error('Stage 2B repeated cells do not have equal observation counts.');
+  }
+  return {
+    sourceRoles: ['calibrated', 'repeat'],
+    totalRuns: allRuns.length,
+    observationsPerCell,
+    cells
   };
 }
 
@@ -316,8 +413,33 @@ function sameLimits(left: Stage2bRecord['limits'], right: Stage2bRecord['limits'
     && left.totalTimeoutMs === right.totalTimeoutMs;
 }
 
+function sameBatchConfiguration(left: Stage2bPublicBatch, right: Stage2bPublicBatch): boolean {
+  return left.provider === right.provider
+    && left.model === right.model
+    && left.thinking === right.thinking
+    && left.sampling.temperature === right.sampling.temperature
+    && sameLimits(left.limits, right.limits);
+}
+
+function summarizeMetric(values: number[]): MetricSummary {
+  const sum = values.reduce((total, value) => total + value, 0);
+  return {
+    min: Math.min(...values),
+    max: Math.max(...values),
+    mean: Number((sum / values.length).toFixed(2))
+  };
+}
+
 function formatNullable(value: boolean | null): string {
   return value === null ? 'N/A' : value ? '是' : '否';
+}
+
+function formatMetric(metric: MetricSummary): string {
+  return `${metric.min}-${metric.max} / ${metric.mean}`;
+}
+
+function formatRatio(numerator: number, denominator: number): string {
+  return denominator === 0 ? 'N/A' : `${numerator}/${denominator}`;
 }
 
 async function loadBatch(

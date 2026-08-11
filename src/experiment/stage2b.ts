@@ -72,6 +72,7 @@ export type Stage2bCommand = {
   mode: 'report';
   pilotBatchId: string;
   calibratedBatchId: string;
+  repeatBatchId?: string;
 };
 
 export type { Stage2bTaskId } from './stage2b-record.js';
@@ -105,7 +106,7 @@ const stage2bHelp = [
   `plan [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
   `prepare [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
   'run-next --batch <batch-id>;',
-  'report --pilot-batch <batch-id> --calibrated-batch <batch-id>'
+  'report --pilot-batch <batch-id> --calibrated-batch <batch-id> [--repeat-batch <batch-id>]'
 ].join(' ');
 
 export function parseStage2bArgs(argv: string[]): Stage2bCommand {
@@ -334,12 +335,14 @@ export async function main(
     const result = await writeStage2bComparisonReport({
       repositoryRoot,
       pilotBatchId: command.pilotBatchId,
-      calibratedBatchId: command.calibratedBatchId
+      calibratedBatchId: command.calibratedBatchId,
+      ...(command.repeatBatchId ? { repeatBatchId: command.repeatBatchId } : {})
     });
     const output = `${JSON.stringify({
       status: 'reported',
       pilotBatchId: command.pilotBatchId,
       calibratedBatchId: command.calibratedBatchId,
+      ...(command.repeatBatchId ? { repeatBatchId: command.repeatBatchId } : {}),
       jsonPath: result.jsonPath,
       markdownPath: result.markdownPath
     }, null, 2)}\n`;
@@ -470,6 +473,7 @@ export async function main(
 function parseReportArgs(argv: string[]): Extract<Stage2bCommand, { mode: 'report' }> {
   let pilotBatchId: string | undefined;
   let calibratedBatchId: string | undefined;
+  let repeatBatchId: string | undefined;
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
@@ -485,12 +489,26 @@ function parseReportArgs(argv: string[]): Extract<Stage2bCommand, { mode: 'repor
       calibratedBatchId = value;
       continue;
     }
+    if (flag === '--repeat-batch' && repeatBatchId === undefined && isStage2bBatchId(value ?? '')) {
+      repeatBatchId = value;
+      continue;
+    }
     throw new Error(stage2bHelp);
   }
-  if (!pilotBatchId || !calibratedBatchId || pilotBatchId === calibratedBatchId) {
+  if (
+    !pilotBatchId
+    || !calibratedBatchId
+    || new Set([pilotBatchId, calibratedBatchId, repeatBatchId].filter(Boolean)).size
+      !== (repeatBatchId ? 3 : 2)
+  ) {
     throw new Error(stage2bHelp);
   }
-  return { mode: 'report', pilotBatchId, calibratedBatchId };
+  return {
+    mode: 'report',
+    pilotBatchId,
+    calibratedBatchId,
+    ...(repeatBatchId ? { repeatBatchId } : {})
+  };
 }
 
 function isSupportedTaskId(value: string | undefined): value is Stage2bTaskId {
