@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cp, lstat, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -327,6 +327,22 @@ test('accepts a bounded repetition count for an offline plan', () => {
   }
 });
 
+test('accepts the same bounded repetition count for batch preparation', () => {
+  assert.deepEqual(parseStage2bArgs(['prepare']), { mode: 'prepare', repetitions: 1 });
+  assert.deepEqual(
+    parseStage2bArgs(['prepare', '--repetitions', '3']),
+    { mode: 'prepare', repetitions: 3 }
+  );
+  for (const argv of [
+    ['prepare', '--repetitions'],
+    ['prepare', '--repetitions', '0'],
+    ['prepare', '--repetitions', '101'],
+    ['prepare', '--unknown', '2']
+  ]) {
+    assert.throws(() => parseStage2bArgs(argv), /prepare|repetitions/i);
+  }
+});
+
 test('renders the T2 and T7 condition matrix without credentials or side effects', async t => {
   const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-plan-'));
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
@@ -384,6 +400,119 @@ test('renders the T2 and T7 condition matrix without credentials or side effects
     { taskId: 'T7', condition: 'skill', repetition: 2 }
   ]);
   await assert.rejects(lstat(join(repositoryRoot, '.experiment-runs')), { code: 'ENOENT' });
+});
+
+test('prepares a private pending batch manifest without credentials or tool connections', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-prepare-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  let output = '';
+
+  const exitCode = await main(['prepare', '--repetitions', '2'], {
+    repositoryRoot,
+    env: {},
+    writeOutput: text => { output += text; },
+    dependencies: {
+      createModelClient: () => { throw new Error('prepare must not create a model client'); },
+      connectTools: async () => { throw new Error('prepare must not connect MCP tools'); },
+      now: () => new Date('2026-08-11T08:00:00.000Z')
+    }
+  });
+
+  assert.equal(exitCode, 0);
+  const summary = JSON.parse(output) as {
+    batchId: string;
+    totalRuns: number;
+    pendingRuns: number;
+    manifestPath: string;
+  };
+  assert.match(summary.batchId, /^stage2b-batch-20260811T080000000Z-[a-f0-9]{8}$/);
+  assert.equal(summary.totalRuns, 12);
+  assert.equal(summary.pendingRuns, 12);
+  assert.equal(
+    summary.manifestPath,
+    join(repositoryRoot, '.experiment-runs/stage-2b/batches', summary.batchId, 'manifest.json')
+  );
+
+  const manifest = JSON.parse(await readFile(summary.manifestPath, 'utf8')) as {
+    version: number;
+    batchId: string;
+    createdAt: string;
+    provider: string;
+    model: string;
+    thinking: string;
+    repetitions: number;
+    totalRuns: number;
+    limits: Record<string, number>;
+    runs: Array<{
+      runKey: string;
+      taskId: string;
+      condition: string;
+      repetition: number;
+      status: string;
+    }>;
+  };
+  assert.deepEqual({
+    version: manifest.version,
+    batchId: manifest.batchId,
+    createdAt: manifest.createdAt,
+    provider: manifest.provider,
+    model: manifest.model,
+    thinking: manifest.thinking,
+    repetitions: manifest.repetitions,
+    totalRuns: manifest.totalRuns,
+    limits: manifest.limits
+  }, {
+    version: 1,
+    batchId: summary.batchId,
+    createdAt: '2026-08-11T08:00:00.000Z',
+    provider: 'deepseek',
+    model: 'deepseek-v4-flash',
+    thinking: 'none',
+    repetitions: 2,
+    totalRuns: 12,
+    limits: {
+      maxTurns: 5,
+      maxToolCalls: 4,
+      requestTimeoutMs: 60_000,
+      totalTimeoutMs: 120_000
+    }
+  });
+  assert.equal(new Set(manifest.runs.map(run => run.runKey)).size, 12);
+  assert.ok(manifest.runs.every(run => run.status === 'pending'));
+  assert.deepEqual(manifest.runs.slice(0, 2), [{
+    runKey: 'T2-explicit-r1',
+    taskId: 'T2',
+    condition: 'explicit',
+    repetition: 1,
+    status: 'pending'
+  }, {
+    runKey: 'T2-explicit-r2',
+    taskId: 'T2',
+    condition: 'explicit',
+    repetition: 2,
+    status: 'pending'
+  }]);
+  assert.equal((await lstat(join(repositoryRoot, '.experiment-runs'))).mode & 0o777, 0o700);
+  assert.equal((await lstat(join(repositoryRoot, '.experiment-runs/stage-2b/batches'))).mode & 0o777, 0o700);
+  assert.equal((await lstat(summary.manifestPath)).mode & 0o777, 0o600);
+  assert.deepEqual(await readdir(join(summary.manifestPath, '..')), ['manifest.json']);
+  assert.doesNotMatch(JSON.stringify(manifest), /API_KEY|Authorization|Bearer|\/(?:home|Users)\//i);
+});
+
+test('refuses to prepare a batch through a symlinked batches directory', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-prepare-'));
+  const outside = await mkdtemp(join(tmpdir(), 'stage2b-outside-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await mkdir(join(repositoryRoot, '.experiment-runs/stage-2b'), { recursive: true });
+  await symlink(outside, join(repositoryRoot, '.experiment-runs/stage-2b/batches'), 'dir');
+
+  await assert.rejects(main(['prepare'], {
+    repositoryRoot,
+    env: {},
+    dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
+  }), /unsafe.*batch/i);
+  assert.deepEqual(await readdir(outside), []);
 });
 
 test('returns a failing process code unless the smoke task completes correctly', () => {
