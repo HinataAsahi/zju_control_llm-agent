@@ -59,6 +59,12 @@ export function parseStage2bArgs(argv: string[]): Stage2bCommand {
   throw new Error('Stage 2B currently supports exactly: smoke');
 }
 
+export function stage2bExitCode(
+  record: Pick<Stage2bRecord, 'status' | 'taskSuccess'>
+): 0 | 1 {
+  return record.status === 'completed' && record.taskSuccess === true ? 0 : 1;
+}
+
 export async function runStage2bSmoke(options: {
   repositoryRoot: string;
   apiKey: string;
@@ -127,7 +133,7 @@ export async function runStage2bSmoke(options: {
   };
 }
 
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+export async function main(argv = process.argv.slice(2)): Promise<0 | 1> {
   parseStage2bArgs(argv);
   const repositoryRoot = process.cwd();
   const apiKey = requireDeepSeekApiKey();
@@ -142,6 +148,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     usage: record.usage,
     recordPath
   }, null, 2)}\n`);
+  return stage2bExitCode(record);
 }
 
 function createRunId(date: Date): string {
@@ -168,8 +175,10 @@ function isEntrypoint(entrypoint: string | undefined): boolean {
 }
 
 if (isEntrypoint(process.argv[1])) {
-  main().catch(() => {
-    process.stderr.write('Stage 2B smoke failed. Inspect the local record when available.\n');
-    process.exitCode = 1;
-  });
+  main()
+    .then(exitCode => { process.exitCode = exitCode; })
+    .catch(() => {
+      process.stderr.write('Stage 2B smoke failed. Inspect the local record when available.\n');
+      process.exitCode = 1;
+    });
 }

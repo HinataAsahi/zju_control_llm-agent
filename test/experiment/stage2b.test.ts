@@ -11,7 +11,8 @@ import type {
 } from '../../src/agent/model-client.js';
 import {
   parseStage2bArgs,
-  runStage2bSmoke
+  runStage2bSmoke,
+  stage2bExitCode
 } from '../../src/experiment/stage2b.js';
 
 class T1FakeModel implements ModelTurnClient {
@@ -112,6 +113,13 @@ test('accepts only the explicit smoke command', () => {
   assert.throws(() => parseStage2bArgs([]), /smoke/);
   assert.throws(() => parseStage2bArgs(['smoke', '--extra']), /smoke/);
   assert.throws(() => parseStage2bArgs(['formal']), /smoke/);
+});
+
+test('returns a failing process code unless the smoke task completes correctly', () => {
+  assert.equal(stage2bExitCode({ status: 'completed', taskSuccess: true }), 0);
+  assert.equal(stage2bExitCode({ status: 'completed', taskSuccess: false }), 1);
+  assert.equal(stage2bExitCode({ status: 'infrastructure-error', taskSuccess: null }), 1);
+  assert.equal(stage2bExitCode({ status: 'model-output-error', taskSuccess: null }), 1);
 });
 
 test('accepts one nested answer in a fenced provider wrapper', async t => {
