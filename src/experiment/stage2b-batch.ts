@@ -5,13 +5,17 @@ import { dirname, join, resolve } from 'node:path';
 import * as z from 'zod/v4';
 import { STAGE2B_LIMITS } from '../agent/agent-loop.js';
 import { DEEPSEEK_MODEL } from '../agent/deepseek-client.js';
-import type { Stage2bRecord } from './stage2b-record.js';
+import {
+  createStage2bRunId,
+  isStage2bRunId,
+  type Stage2bRecord
+} from './stage2b-record.js';
 import {
   createStage2bPlan,
   STAGE2B_PLAN_MAX_REPETITIONS
 } from './stage2b-plan.js';
 
-export type Stage2bBatchRunStatus = 'pending' | 'completed' | 'failed';
+export type Stage2bBatchRunStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 const runIdentityShape = {
   runKey: z.string().regex(/^T[27]-(?:explicit|description|skill)-r[1-9]\d*$/),
@@ -25,10 +29,16 @@ const pendingBatchRunSchema = z.strictObject({
   status: z.literal('pending')
 });
 
+const runningBatchRunSchema = z.strictObject({
+  ...runIdentityShape,
+  status: z.literal('running'),
+  recordRunId: z.string().refine(isStage2bRunId)
+});
+
 const terminalBatchRunSchema = z.strictObject({
   ...runIdentityShape,
   status: z.enum(['completed', 'failed']),
-  recordRunId: z.string().regex(/^stage2b-[A-Za-z0-9._-]+$/),
+  recordRunId: z.string().refine(isStage2bRunId),
   recordStatus: z.enum([
     'completed',
     'infrastructure-error',
@@ -57,6 +67,7 @@ const stage2bBatchManifestSchema = z.strictObject({
   }),
   runs: z.array(z.discriminatedUnion('status', [
     pendingBatchRunSchema,
+    runningBatchRunSchema,
     terminalBatchRunSchema
   ]))
 }).superRefine((manifest, context) => {
@@ -82,6 +93,7 @@ const stage2bBatchManifestSchema = z.strictObject({
 });
 
 export type Stage2bBatchRun = z.infer<typeof pendingBatchRunSchema>
+  | z.infer<typeof runningBatchRunSchema>
   | z.infer<typeof terminalBatchRunSchema>;
 export type Stage2bBatchManifest = z.infer<typeof stage2bBatchManifestSchema>;
 
@@ -134,6 +146,77 @@ export function nextPendingStage2bBatchRun(
   );
 }
 
+export async function claimNextStage2bBatchRun(options: {
+  repositoryRoot: string;
+  batchId: string;
+  claimedAt: Date;
+}): Promise<{
+  manifest: Stage2bBatchManifest;
+  manifestPath: string;
+  run?: Extract<Stage2bBatchRun, { status: 'running' }>;
+}> {
+  const loaded = await readStage2bBatchManifest(options.repositoryRoot, options.batchId);
+  if (loaded.manifest.runs.some(run => run.status === 'running')) {
+    throw new Error('Stage 2B batch already has a running item.');
+  }
+  const selected = nextPendingStage2bBatchRun(loaded.manifest);
+  if (!selected) return loaded;
+
+  const running: Extract<Stage2bBatchRun, { status: 'running' }> = {
+    ...selected,
+    status: 'running',
+    recordRunId: createStage2bRunId(selected.taskId, selected.condition, options.claimedAt)
+  };
+  const runs = loaded.manifest.runs.map(run => run.runKey === selected.runKey ? running : run);
+  const manifest = stage2bBatchManifestSchema.parse({ ...loaded.manifest, runs });
+  await replaceStage2bBatchManifest(loaded.manifestPath, manifest);
+  return { manifest, manifestPath: loaded.manifestPath, run: running };
+}
+
+export async function reconcileStage2bBatch(
+  repositoryRoot: string,
+  batchId: string
+): Promise<{
+  manifest: Stage2bBatchManifest;
+  manifestPath: string;
+  recoveredRunKeys: string[];
+  unresolvedRunKeys: string[];
+}> {
+  const loaded = await readStage2bBatchManifest(repositoryRoot, batchId);
+  const recoveredRunKeys: string[] = [];
+  const unresolvedRunKeys: string[] = [];
+  const runs: Stage2bBatchRun[] = [];
+  for (const run of loaded.manifest.runs) {
+    if (run.status !== 'running') {
+      runs.push(run);
+      continue;
+    }
+    const record = await readOptionalRecordSummary(repositoryRoot, run.recordRunId);
+    if (!record) {
+      unresolvedRunKeys.push(run.runKey);
+      runs.push(run);
+      continue;
+    }
+    if (record.taskId !== run.taskId || record.condition !== run.condition) {
+      throw new Error('Stage 2B persisted record does not match its running batch item.');
+    }
+    recoveredRunKeys.push(run.runKey);
+    runs.push(terminalBatchRun(run, record));
+  }
+  const manifest = recoveredRunKeys.length === 0
+    ? loaded.manifest
+    : stage2bBatchManifestSchema.parse({ ...loaded.manifest, runs });
+  if (recoveredRunKeys.length > 0) {
+    await replaceStage2bBatchManifest(loaded.manifestPath, manifest);
+  }
+  return {
+    manifest,
+    manifestPath: loaded.manifestPath,
+    recoveredRunKeys,
+    unresolvedRunKeys
+  };
+}
+
 export async function recordStage2bBatchRun(options: {
   repositoryRoot: string;
   batchId: string;
@@ -143,29 +226,82 @@ export async function recordStage2bBatchRun(options: {
   const loaded = await readStage2bBatchManifest(options.repositoryRoot, options.batchId);
   const index = loaded.manifest.runs.findIndex(run => run.runKey === options.runKey);
   const selected = loaded.manifest.runs[index];
-  if (!selected || selected.status !== 'pending') {
-    throw new Error('Stage 2B batch run is not pending.');
+  if (!selected || selected.status !== 'running') {
+    throw new Error('Stage 2B batch run is not running.');
   }
-  if (selected.taskId !== options.record.taskId || selected.condition !== options.record.condition) {
+  if (
+    selected.recordRunId !== options.record.runId
+    || selected.taskId !== options.record.taskId
+    || selected.condition !== options.record.condition
+  ) {
     throw new Error('Stage 2B record does not match the selected batch run.');
   }
 
-  const terminal: Stage2bBatchRun = {
-    runKey: selected.runKey,
-    taskId: selected.taskId,
-    condition: selected.condition,
-    repetition: selected.repetition,
-    status: options.record.status === 'completed' ? 'completed' : 'failed',
-    recordRunId: options.record.runId,
-    recordStatus: options.record.status,
-    taskSuccess: options.record.taskSuccess,
-    recoverySuccess: options.record.recoverySuccess
-  };
+  const terminal = terminalBatchRun(selected, options.record);
   const runs = [...loaded.manifest.runs];
   runs[index] = terminal;
   const manifest = stage2bBatchManifestSchema.parse({ ...loaded.manifest, runs });
   await replaceStage2bBatchManifest(loaded.manifestPath, manifest);
   return { manifest, manifestPath: loaded.manifestPath };
+}
+
+function terminalBatchRun(
+  selected: Extract<Stage2bBatchRun, { status: 'running' }>,
+  record: Pick<
+    Stage2bRecord,
+    'runId' | 'status' | 'taskSuccess' | 'recoverySuccess'
+  >
+): Extract<Stage2bBatchRun, { status: 'completed' | 'failed' }> {
+  return {
+    runKey: selected.runKey,
+    taskId: selected.taskId,
+    condition: selected.condition,
+    repetition: selected.repetition,
+    status: record.status === 'completed' ? 'completed' : 'failed',
+    recordRunId: record.runId,
+    recordStatus: record.status,
+    taskSuccess: record.taskSuccess,
+    recoverySuccess: record.recoverySuccess
+  };
+}
+
+async function readOptionalRecordSummary(
+  repositoryRoot: string,
+  runId: string
+): Promise<Pick<
+  Stage2bRecord,
+  'runId' | 'taskId' | 'condition' | 'status' | 'taskSuccess' | 'recoverySuccess'
+> | undefined> {
+  if (!isStage2bRunId(runId)) throw new Error('Unsafe Stage 2B record run ID.');
+  const stageRoot = resolve(repositoryRoot, '.experiment-runs/stage-2b');
+  const recordRoot = join(stageRoot, runId);
+  const recordPath = join(recordRoot, 'record.json');
+  try {
+    await validatePrivateDirectory(stageRoot, 'stage');
+    await validatePrivateDirectory(recordRoot, 'record');
+    await validateRegularFile(recordPath, 'record');
+  } catch (error) {
+    if (isErrno(error, 'ENOENT')) return undefined;
+    throw error;
+  }
+  const text = await readRegularText(recordPath);
+  validateManifestText(text);
+  const summary = z.object({
+    runId: z.string().refine(isStage2bRunId),
+    taskId: z.enum(['T1', 'T2', 'T6', 'T7']),
+    condition: z.enum(['explicit', 'description', 'skill']),
+    status: z.enum([
+      'completed',
+      'infrastructure-error',
+      'protocol-error',
+      'model-output-error',
+      'limit-exceeded'
+    ]),
+    taskSuccess: z.boolean().nullable(),
+    recoverySuccess: z.boolean().nullable()
+  }).parse(JSON.parse(text));
+  if (summary.runId !== runId) throw new Error('Stage 2B record ID does not match its path.');
+  return summary;
 }
 
 async function writeStage2bBatchManifest(
@@ -320,4 +456,8 @@ function validateManifestText(text: string): void {
   ) {
     throw new Error('Stage 2B batch manifest contains sensitive or local path material.');
   }
+}
+
+function isErrno(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
 }

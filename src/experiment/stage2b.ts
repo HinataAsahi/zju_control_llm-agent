@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -26,15 +25,17 @@ import {
 } from './schema.js';
 import {
   writeStage2bRecord,
+  createStage2bRunId,
+  isStage2bRunId,
   type Stage2bRecord,
   type Stage2bTaskId,
   type Stage2bToolEvent
 } from './stage2b-record.js';
 import {
+  claimNextStage2bBatchRun,
   isStage2bBatchId,
-  nextPendingStage2bBatchRun,
   prepareStage2bBatch,
-  readStage2bBatchManifest,
+  reconcileStage2bBatch,
   recordStage2bBatchRun
 } from './stage2b-batch.js';
 import {
@@ -142,6 +143,7 @@ export async function runStage2bSmoke(options: {
   repositoryRoot: string;
   taskId?: Stage2bTaskId;
   condition?: ExperimentCondition;
+  runId?: string;
   apiKey?: string;
   dependencies?: Partial<Stage2bDependencies>;
 }): Promise<Stage2bRecord> {
@@ -153,7 +155,8 @@ export async function runStage2bSmoke(options: {
   const runRoot = resolve(repositoryRoot, '.experiment-runs/stage-2b');
   const serverEntrypoint = resolve(repositoryRoot, 'dist/src/mcp/server.js');
   const startedAt = dependencies.now();
-  const runId = createRunId(taskId, condition, startedAt);
+  const runId = options.runId ?? createStage2bRunId(taskId, condition, startedAt);
+  if (!isStage2bRunId(runId)) throw new Error('Invalid Stage 2B run ID.');
   let setup: {
     task: ExperimentTask;
     workspace: PreparedWorkspace;
@@ -315,14 +318,44 @@ export async function main(
     return 0;
   }
   if (command.mode === 'run-next') {
-    const loaded = await readStage2bBatchManifest(repositoryRoot, command.batchId);
-    const selected = nextPendingStage2bBatchRun(loaded.manifest);
+    const reconciled = await reconcileStage2bBatch(repositoryRoot, command.batchId);
+    const remainingAfterReconcile = reconciled.manifest.runs
+      .filter(run => run.status === 'pending').length;
+    if (reconciled.recoveredRunKeys.length > 0) {
+      const output = `${JSON.stringify({
+        batchId: command.batchId,
+        status: 'reconciled',
+        recoveredRunKeys: reconciled.recoveredRunKeys,
+        remainingPending: remainingAfterReconcile,
+        manifestPath: reconciled.manifestPath
+      }, null, 2)}\n`;
+      (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
+      return 0;
+    }
+    if (reconciled.unresolvedRunKeys.length > 0) {
+      const output = `${JSON.stringify({
+        batchId: command.batchId,
+        status: 'blocked-by-running',
+        unresolvedRunKeys: reconciled.unresolvedRunKeys,
+        remainingPending: remainingAfterReconcile,
+        manifestPath: reconciled.manifestPath
+      }, null, 2)}\n`;
+      (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
+      return 1;
+    }
+    const dependencies = { ...defaultDependencies, ...options.dependencies };
+    const claimed = await claimNextStage2bBatchRun({
+      repositoryRoot,
+      batchId: command.batchId,
+      claimedAt: dependencies.now()
+    });
+    const selected = claimed.run;
     if (!selected) {
       const output = `${JSON.stringify({
         batchId: command.batchId,
         status: 'no-pending-runs',
         remainingPending: 0,
-        manifestPath: loaded.manifestPath
+        manifestPath: claimed.manifestPath
       }, null, 2)}\n`;
       (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
       return 0;
@@ -332,6 +365,7 @@ export async function main(
       repositoryRoot,
       taskId: selected.taskId,
       condition: selected.condition,
+      runId: selected.recordRunId,
       ...(apiKey !== undefined ? { apiKey } : {}),
       ...(options.dependencies ? { dependencies: options.dependencies } : {})
     });
@@ -343,7 +377,7 @@ export async function main(
       record
     });
     const terminal = updated.manifest.runs.find(run => run.runKey === selected.runKey);
-    if (!terminal || terminal.status === 'pending') {
+    if (!terminal || terminal.status === 'pending' || terminal.status === 'running') {
       throw new Error('Stage 2B batch update did not produce a terminal run.');
     }
     const output = `${JSON.stringify({
@@ -384,15 +418,6 @@ export async function main(
   }, null, 2)}\n`;
   (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
   return stage2bExitCode(record);
-}
-
-function createRunId(
-  taskId: Stage2bTaskId,
-  condition: ExperimentCondition,
-  date: Date
-): string {
-  const timestamp = date.toISOString().replace(/[-:.]/g, '').replace('Z', 'Z');
-  return `stage2b-${taskId}-${condition}-${timestamp}-${randomBytes(4).toString('hex')}`;
 }
 
 function isSupportedTaskId(value: string | undefined): value is Stage2bTaskId {

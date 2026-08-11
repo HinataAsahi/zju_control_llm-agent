@@ -16,6 +16,19 @@ export type Stage2bToolEvent = Extract<
 
 export type Stage2bTaskId = 'T1' | 'T2' | 'T6' | 'T7';
 
+export function createStage2bRunId(
+  taskId: Stage2bTaskId,
+  condition: ExperimentCondition,
+  date: Date
+): string {
+  const timestamp = date.toISOString().replace(/[-:.]/g, '').replace('Z', 'Z');
+  return `stage2b-${taskId}-${condition}-${timestamp}-${randomBytes(4).toString('hex')}`;
+}
+
+export function isStage2bRunId(runId: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(runId) && runId !== '.' && runId !== '..';
+}
+
 export interface Stage2bRecord {
   version: 1;
   runId: string;
@@ -88,7 +101,7 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
 }
 
 function validateRunId(runId: string): void {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(runId) || runId === '.' || runId === '..') {
+  if (!isStage2bRunId(runId)) {
     throw new Error(`Unsafe run ID: ${runId}`);
   }
 }

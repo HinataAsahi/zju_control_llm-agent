@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises';
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -16,7 +16,10 @@ import {
   stage2bExitCode,
   type Stage2bTaskId
 } from '../../src/experiment/stage2b.js';
-import { writeStage2bRecord } from '../../src/experiment/stage2b-record.js';
+import {
+  writeStage2bRecord,
+  type Stage2bRecord
+} from '../../src/experiment/stage2b-record.js';
 
 class T1FakeModel implements ModelTurnClient {
   readonly requests: ModelTurnRequest[] = [];
@@ -545,9 +548,18 @@ test('run-next records one model-behavior failure as a completed observation', a
     batchId: string;
     manifestPath: string;
   };
-  const model = new ScriptedModel([
-    finalTurn(['incorrect'], 'Returned an incorrect answer without calling the tool.')
-  ]);
+  let modelRequests = 0;
+  let observedClaim: Record<string, unknown> | undefined;
+  const model: ModelTurnClient = {
+    async createTurn() {
+      modelRequests += 1;
+      const current = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+        runs: Array<Record<string, unknown>>;
+      };
+      observedClaim = current.runs[0];
+      return finalTurn(['incorrect'], 'Returned an incorrect answer without calling the tool.');
+    }
+  };
   const times = [
     new Date('2026-08-11T08:01:00.000Z'),
     new Date('2026-08-11T08:01:00.100Z')
@@ -587,7 +599,15 @@ test('run-next records one model-behavior failure as a completed observation', a
   assert.equal(summary.remainingPending, 5);
   assert.match(summary.recordRunId, /^stage2b-T2-explicit-/);
   assert.equal((await lstat(summary.recordPath)).mode & 0o777, 0o600);
-  assert.equal(model.requests.length, 1);
+  assert.equal(modelRequests, 1);
+  assert.deepEqual(observedClaim, {
+    runKey: 'T2-explicit-r1',
+    taskId: 'T2',
+    condition: 'explicit',
+    repetition: 1,
+    status: 'running',
+    recordRunId: summary.recordRunId
+  });
 
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
     runs: Array<Record<string, unknown>>;
@@ -668,6 +688,124 @@ test('run-next records a setup failure as failed without creating a model client
       'record.json'
     )
   });
+});
+
+test('run-next reconciles an existing record without starting another paid run', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-reconcile-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  let prepareOutput = '';
+  await main(['prepare'], {
+    repositoryRoot,
+    writeOutput: text => { prepareOutput += text; },
+    dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
+  });
+  const { batchId, manifestPath } = JSON.parse(prepareOutput) as {
+    batchId: string;
+    manifestPath: string;
+  };
+  const recordRunId = 'stage2b-T2-explicit-20260811T080100000Z-recovery01';
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    runs: Array<Record<string, unknown>>;
+  };
+  manifest.runs[0] = {
+    runKey: 'T2-explicit-r1',
+    taskId: 'T2',
+    condition: 'explicit',
+    repetition: 1,
+    status: 'running',
+    recordRunId
+  };
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await writeStage2bRecord(repositoryRoot, completedBatchRecord(recordRunId));
+  let output = '';
+
+  const exitCode = await main(['run-next', '--batch', batchId], {
+    repositoryRoot,
+    env: new Proxy({}, {
+      get: () => { throw new Error('reconciliation must not read the API key'); }
+    }),
+    writeOutput: text => { output += text; },
+    dependencies: {
+      createModelClient: () => { throw new Error('reconciliation must not create a model'); },
+      connectTools: async () => { throw new Error('reconciliation must not connect tools'); }
+    }
+  });
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(JSON.parse(output), {
+    batchId,
+    status: 'reconciled',
+    recoveredRunKeys: ['T2-explicit-r1'],
+    remainingPending: 5,
+    manifestPath
+  });
+  const updated = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    runs: Array<Record<string, unknown>>;
+  };
+  assert.deepEqual(updated.runs[0], {
+    runKey: 'T2-explicit-r1',
+    taskId: 'T2',
+    condition: 'explicit',
+    repetition: 1,
+    status: 'completed',
+    recordRunId,
+    recordStatus: 'completed',
+    taskSuccess: true,
+    recoverySuccess: null
+  });
+});
+
+test('run-next blocks an unresolved running item instead of risking a duplicate charge', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-reconcile-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  let prepareOutput = '';
+  await main(['prepare'], {
+    repositoryRoot,
+    writeOutput: text => { prepareOutput += text; },
+    dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
+  });
+  const { batchId, manifestPath } = JSON.parse(prepareOutput) as {
+    batchId: string;
+    manifestPath: string;
+  };
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    runs: Array<Record<string, unknown>>;
+  };
+  manifest.runs[0] = {
+    runKey: 'T2-explicit-r1',
+    taskId: 'T2',
+    condition: 'explicit',
+    repetition: 1,
+    status: 'running',
+    recordRunId: 'stage2b-T2-explicit-20260811T080100000Z-missing01'
+  };
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  let output = '';
+
+  const exitCode = await main(['run-next', '--batch', batchId], {
+    repositoryRoot,
+    env: new Proxy({}, {
+      get: () => { throw new Error('blocked recovery must not read the API key'); }
+    }),
+    writeOutput: text => { output += text; },
+    dependencies: {
+      createModelClient: () => { throw new Error('blocked recovery must not create a model'); },
+      connectTools: async () => { throw new Error('blocked recovery must not connect tools'); }
+    }
+  });
+
+  assert.equal(exitCode, 1);
+  assert.deepEqual(JSON.parse(output), {
+    batchId,
+    status: 'blocked-by-running',
+    unresolvedRunKeys: ['T2-explicit-r1'],
+    remainingPending: 5,
+    manifestPath
+  });
+  const unchanged = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    runs: Array<Record<string, unknown>>;
+  };
+  assert.equal(unchanged.runs[0]?.status, 'running');
 });
 
 test('returns a failing process code unless the smoke task completes correctly', () => {
@@ -923,5 +1061,43 @@ function finalTurn(
     functionCalls: [],
     finalText: text,
     usage: usage(10, 2)
+  };
+}
+
+function completedBatchRecord(runId: string): Stage2bRecord {
+  return {
+    version: 1,
+    runId,
+    startedAt: '2026-08-11T08:01:00.000Z',
+    provider: 'deepseek',
+    model: 'deepseek-v4-flash',
+    thinking: 'none',
+    taskId: 'T2',
+    condition: 'explicit',
+    status: 'completed',
+    taskSuccess: true,
+    recoverySuccess: null,
+    limits: {
+      maxTurns: 5,
+      maxToolCalls: 4,
+      requestTimeoutMs: 60_000,
+      totalTimeoutMs: 120_000
+    },
+    turns: 1,
+    toolCalls: 0,
+    toolEvents: [],
+    finalAnswer: {
+      status: 'completed',
+      answer: ['Alice', 'Carol', 'Dave'],
+      explanation: 'Recovered persisted observation.'
+    },
+    usage: {
+      inputTokens: 10,
+      cachedInputTokens: 0,
+      outputTokens: 5,
+      reasoningOutputTokens: 0,
+      totalTokens: 15
+    },
+    durationMs: 100
   };
 }
