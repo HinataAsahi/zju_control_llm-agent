@@ -53,10 +53,12 @@
 - 与供应商无关的 Agent 循环负责轮次、工具调用、历史回放、超时和错误分类；
 - `McpToolBridge` 通过 stdio 连接仓库中的 `jq` MCP Server，并把发现到的工具转换为模型可用的函数工具；
 - DeepSeek 适配器使用官方 OpenAI SDK 7.4.0，指向 `https://api.deepseek.com` 的 Responses API；
-- Stage 2B 入口可为 T1、T2、T6、T7 准备隔离工作区，运行 `Explicit` 条件烟雾实验并写入本地记录；
+- Stage 2B 入口可为 T1、T2、T6、T7 准备隔离工作区，运行 `Explicit`、`Description` 或 `Skill` 条件烟雾实验并写入本地记录；
 - 本地 Schema 与 Zod 负责最终答案校验，供应商返回的内容不会未经验证直接成为实验结果。
 
 当前真实运行固定使用 `deepseek-v4-flash`，关闭思考模式和 SDK 自动重试，并设置以下边界：最多 5 轮、最多 4 次 MCP 调用、单次模型请求 60 秒、整次运行 120 秒。额外的一轮用于在工具调用额度耗尽后提交最终答案，不会放宽工具调用次数。只要一轮同时出现文本和函数调用，我会优先执行工具并丢弃该轮的未完成文本，等待后续纯文本终局。
+
+自建 API Runner 不具备 Codex 的自动 Skill 发现机制。`Description` 条件只使用公共任务提示和 MCP 工具描述；`Skill` 条件复用相同任务提示、工具定义和输出 Schema，并把工作区内隔离复制的 `SKILL.md` 追加到模型 instructions。测试会比较两种条件的请求结构，确保除 Skill instructions 外没有其他输入差异。
 
 联调过程中，我发现 DeepSeek 的 `json_schema` 请求虽然能被接口接受，但工具调用后的最终输出并不稳定，曾出现 Markdown 围栏、块外说明、额外字段、混合工具调用，甚至疑似复述 Schema。最终我改用 DeepSeek 官方 JSON Output 指南建议的 `json_object` 模式，在提示中给出不包含任务答案的三字段 JSON 示例，再由本地严格校验兜底。解析边界仍拒绝不合法 JSON、多个候选对象和多个答案对象。
 
@@ -168,15 +170,15 @@ npm run experiment -- report
 
 ### 运行 Stage 2B 代表任务
 
-Stage 2B 支持 T1、T2、T6、T7 的 `Explicit` 烟雾任务。省略 `--task` 时默认运行 T1；为了避免密钥进入命令历史，我会先通过隐藏输入读取密钥，再仅为当前进程传入：
+Stage 2B 支持 T1、T2、T6、T7 和 `Explicit`、`Description`、`Skill` 三种条件。省略参数时默认运行 T1/Explicit；为了避免密钥进入命令历史，我会先通过隐藏输入读取密钥，再仅为当前进程传入：
 
 ```bash
 read -rsp "DeepSeek API key: " DEEPSEEK_API_KEY && printf '\n'
-DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" npm run experiment:stage2b -- smoke --task T2
+DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" npm run experiment:stage2b -- smoke --task T2 --condition skill
 unset DEEPSEEK_API_KEY
 ```
 
-`--task` 可取 `T1`、`T2`、`T6` 或 `T7`。命令会产生 DeepSeek API 费用；命令行只输出运行摘要，详细记录保存在已忽略的本地目录中。Stage 2B 不会自动重试失败请求，避免基础设施错误造成不可见的额外费用。
+`--task` 可取 `T1`、`T2`、`T6` 或 `T7`，`--condition` 可取 `explicit`、`description` 或 `skill`。命令会产生 DeepSeek API 费用；命令行只输出运行摘要，详细记录保存在已忽略的本地目录中。Stage 2B 不会自动重试失败请求，避免基础设施错误造成不可见的额外费用。
 
 ## 项目结构
 
@@ -197,4 +199,4 @@ docs/learning-notes/             前期学习材料
 
 ## 下一步
 
-Stage 2B 已完成内联 JSON、文件输入、错误恢复和缺失文件四类代表路径的真实单次验证。下一步加入 `Description` 和 `Skill` 条件，先在少量代表任务上确认提示材料和工具可见性能够独立控制；边界稳定后，再实现重复次数、随机性记录、断点恢复和统计报告。
+Stage 2B 已完成内联 JSON、文件输入、错误恢复和缺失文件四类代表路径的 Explicit 真实单次验证，并实现三种条件的独立控制。下一步在 T2、T7 上分别完成 Description 与 Skill 的真实单次验证；边界稳定后，再实现重复次数、随机性记录、断点恢复和统计报告。

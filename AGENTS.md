@@ -61,3 +61,5 @@ For this repository, verified work may be pushed to the configured GitHub remote
 - and the destination branch and upstream have been verified.
 
 Use normal fast-forward pushes. Never force-push, rewrite published history, push secrets, generated artifacts, local-only documentation, or known failing or incomplete work. Report the destination branch and pushed commit after publication.
+
+Treat a fully verified offline implementation as a feature-branch synchronization point. Treat completed real experiments plus reviewed documentation as a main-branch synchronization point. Push at these coherent milestones instead of waiting for the entire multi-stage project to finish.
