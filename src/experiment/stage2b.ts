@@ -26,6 +26,7 @@ import {
 import {
   writeStage2bRecord,
   type Stage2bRecord,
+  type Stage2bTaskId,
   type Stage2bToolEvent
 } from './stage2b-record.js';
 import { loadTasks } from './task-loader.js';
@@ -39,7 +40,10 @@ export interface Stage2bDependencies {
 
 export interface Stage2bCommand {
   mode: 'smoke';
+  taskId: Stage2bTaskId;
 }
+
+export type { Stage2bTaskId } from './stage2b-record.js';
 
 export interface Stage2bMainOptions {
   repositoryRoot?: string;
@@ -62,9 +66,21 @@ const defaultDependencies: Stage2bDependencies = {
   now: () => new Date()
 };
 
+const supportedTaskIds: readonly Stage2bTaskId[] = ['T1', 'T2', 'T6', 'T7'];
+
 export function parseStage2bArgs(argv: string[]): Stage2bCommand {
-  if (argv.length === 1 && argv[0] === 'smoke') return { mode: 'smoke' };
-  throw new Error('Stage 2B currently supports exactly: smoke');
+  if (argv.length === 1 && argv[0] === 'smoke') {
+    return { mode: 'smoke', taskId: 'T1' };
+  }
+  if (
+    argv.length === 3
+    && argv[0] === 'smoke'
+    && argv[1] === '--task'
+    && isSupportedTaskId(argv[2])
+  ) {
+    return { mode: 'smoke', taskId: argv[2] };
+  }
+  throw new Error('Stage 2B supports: smoke [--task T1|T2|T6|T7]');
 }
 
 export function stage2bExitCode(
@@ -75,16 +91,18 @@ export function stage2bExitCode(
 
 export async function runStage2bSmoke(options: {
   repositoryRoot: string;
+  taskId?: Stage2bTaskId;
   apiKey?: string;
   dependencies?: Partial<Stage2bDependencies>;
 }): Promise<Stage2bRecord> {
   const repositoryRoot = resolve(options.repositoryRoot);
+  const taskId = options.taskId ?? 'T1';
   const dependencies = { ...defaultDependencies, ...options.dependencies };
   const experimentRoot = resolve(repositoryRoot, 'experiments/stage-2a');
   const runRoot = resolve(repositoryRoot, '.experiment-runs/stage-2b');
   const serverEntrypoint = resolve(repositoryRoot, 'dist/src/mcp/server.js');
   const startedAt = dependencies.now();
-  const runId = createRunId(startedAt);
+  const runId = createRunId(taskId, startedAt);
   let setup: {
     task: ExperimentTask;
     workspace: PreparedWorkspace;
@@ -94,8 +112,8 @@ export async function runStage2bSmoke(options: {
   try {
     const apiKey = requireDeepSeekApiKey({ DEEPSEEK_API_KEY: options.apiKey });
     const tasks = await loadTasks(experimentRoot);
-    const task = tasks.find(candidate => candidate.id === 'T1');
-    if (!task) throw new Error('Stage 2B requires task T1.');
+    const task = tasks.find(candidate => candidate.id === taskId);
+    if (!task) throw new Error(`Stage 2B requires task ${taskId}.`);
     const workspace = await prepareWorkspace({
       task,
       condition: 'explicit',
@@ -114,6 +132,7 @@ export async function runStage2bSmoke(options: {
   } catch {
     return infrastructureRecord({
       runId,
+      taskId,
       startedAt,
       finishedAt: dependencies.now(),
       category: 'configuration',
@@ -130,6 +149,7 @@ export async function runStage2bSmoke(options: {
   } catch {
     return infrastructureRecord({
       runId,
+      taskId,
       startedAt,
       finishedAt: dependencies.now(),
       category: 'mcp',
@@ -156,7 +176,7 @@ export async function runStage2bSmoke(options: {
     provider: 'deepseek',
     model: DEEPSEEK_MODEL,
     thinking: 'none',
-    taskId: 'T1',
+    taskId,
     condition: 'explicit',
     status: result.status,
     taskSuccess: finalAnswer
@@ -175,6 +195,7 @@ export async function runStage2bSmoke(options: {
 
 function infrastructureRecord(options: {
   runId: string;
+  taskId: Stage2bTaskId;
   startedAt: Date;
   finishedAt: Date;
   category: 'configuration' | 'mcp';
@@ -187,7 +208,7 @@ function infrastructureRecord(options: {
     provider: 'deepseek',
     model: DEEPSEEK_MODEL,
     thinking: 'none',
-    taskId: 'T1',
+    taskId: options.taskId,
     condition: 'explicit',
     status: 'infrastructure-error',
     taskSuccess: null,
@@ -211,17 +232,19 @@ export async function main(
   argv = process.argv.slice(2),
   options: Stage2bMainOptions = {}
 ): Promise<0 | 1> {
-  parseStage2bArgs(argv);
+  const command = parseStage2bArgs(argv);
   const repositoryRoot = options.repositoryRoot ?? process.cwd();
   const apiKey = (options.env ?? process.env).DEEPSEEK_API_KEY;
   const record = await runStage2bSmoke({
     repositoryRoot,
+    taskId: command.taskId,
     ...(apiKey !== undefined ? { apiKey } : {}),
     ...(options.dependencies ? { dependencies: options.dependencies } : {})
   });
   const recordPath = await writeStage2bRecord(repositoryRoot, record);
   const output = `${JSON.stringify({
     runId: record.runId,
+    taskId: record.taskId,
     status: record.status,
     taskSuccess: record.taskSuccess,
     turns: record.turns,
@@ -233,9 +256,13 @@ export async function main(
   return stage2bExitCode(record);
 }
 
-function createRunId(date: Date): string {
+function createRunId(taskId: Stage2bTaskId, date: Date): string {
   const timestamp = date.toISOString().replace(/[-:.]/g, '').replace('Z', 'Z');
-  return `stage2b-T1-explicit-${timestamp}-${randomBytes(4).toString('hex')}`;
+  return `stage2b-${taskId}-explicit-${timestamp}-${randomBytes(4).toString('hex')}`;
+}
+
+function isSupportedTaskId(value: string | undefined): value is Stage2bTaskId {
+  return supportedTaskIds.some(taskId => taskId === value);
 }
 
 function isToolEvent(item: unknown): item is Stage2bToolEvent {

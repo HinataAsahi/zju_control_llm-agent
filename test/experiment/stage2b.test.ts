@@ -13,7 +13,8 @@ import {
   main,
   parseStage2bArgs,
   runStage2bSmoke,
-  stage2bExitCode
+  stage2bExitCode,
+  type Stage2bTaskId
 } from '../../src/experiment/stage2b.js';
 import { writeStage2bRecord } from '../../src/experiment/stage2b-record.js';
 
@@ -110,10 +111,99 @@ test('runs fake model to real MCP for the explicit T1 smoke', async t => {
     : '', /"values":\[3\]/);
 });
 
-test('accepts only the explicit smoke command', () => {
-  assert.deepEqual(parseStage2bArgs(['smoke']), { mode: 'smoke' });
+test('runs representative file, recovery, and missing-file tasks through real MCP', async t => {
+  const cases: Array<{
+    taskId: Stage2bTaskId;
+    turns: ModelTurnResult[];
+    expectedAnswer: unknown;
+    expectedToolCalls: number;
+    expectedToolOutput: RegExp;
+  }> = [{
+    taskId: 'T2',
+    turns: [
+      toolTurn('call-t2', '.users | map(select(.active)) | map(.name)', {
+        type: 'file', path: 'users.json'
+      }),
+      finalTurn(['Alice', 'Carol', 'Dave'], 'Read active users from the file.')
+    ],
+    expectedAnswer: ['Alice', 'Carol', 'Dave'],
+    expectedToolCalls: 1,
+    expectedToolOutput: /Alice.*Carol.*Dave/
+  }, {
+    taskId: 'T7',
+    turns: [
+      toolTurn('call-t7-bad', 'if', { type: 'file', path: 'users.json' }),
+      toolTurn('call-t7-fixed', '[.users[] | select(.active)] | length', {
+        type: 'file', path: 'users.json'
+      }),
+      finalTurn(3, 'Corrected the invalid jq filter.')
+    ],
+    expectedAnswer: 3,
+    expectedToolCalls: 2,
+    expectedToolOutput: /JQ_SYNTAX_ERROR/
+  }, {
+    taskId: 'T6',
+    turns: [
+      toolTurn('call-t6', '.', { type: 'file', path: 'missing.json' }),
+      finalTurn(null, 'The required file does not exist.', 'cannot_complete')
+    ],
+    expectedAnswer: null,
+    expectedToolCalls: 1,
+    expectedToolOutput: /FILE_NOT_FOUND/
+  }];
+
+  for (const scenario of cases) {
+    await t.test(scenario.taskId, async t => {
+      const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
+      t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+      await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+      const model = new ScriptedModel(scenario.turns);
+
+      const record = await runStage2bSmoke({
+        repositoryRoot,
+        taskId: scenario.taskId,
+        apiKey: 'offline-test-key',
+        dependencies: {
+          createModelClient: () => model,
+          connectTools: options => McpToolBridge.connect({
+            ...options,
+            serverEntrypoint: resolve('dist/src/mcp/server.js')
+          })
+        }
+      });
+
+      assert.equal(record.taskId, scenario.taskId);
+      assert.match(record.runId, new RegExp(`^stage2b-${scenario.taskId}-explicit-`));
+      assert.equal(record.status, 'completed');
+      assert.equal(record.taskSuccess, true);
+      assert.deepEqual(record.finalAnswer?.answer, scenario.expectedAnswer);
+      assert.equal(record.toolCalls, scenario.expectedToolCalls);
+      assert.match(
+        record.toolEvents
+          .filter(event => event.type === 'function_call_output')
+          .map(event => event.output)
+          .join('\n'),
+        scenario.expectedToolOutput
+      );
+      assert.match(
+        model.requests[0]?.history[0]?.type === 'message'
+          ? model.requests[0].history[0].content
+          : '',
+        new RegExp(scenario.taskId === 'T6' ? 'missing\\.json' : 'users\\.json')
+      );
+    });
+  }
+});
+
+test('accepts smoke for the supported representative task set', () => {
+  assert.deepEqual(parseStage2bArgs(['smoke']), { mode: 'smoke', taskId: 'T1' });
+  for (const taskId of ['T1', 'T2', 'T6', 'T7'] as const) {
+    assert.deepEqual(parseStage2bArgs(['smoke', '--task', taskId]), { mode: 'smoke', taskId });
+  }
   assert.throws(() => parseStage2bArgs([]), /smoke/);
   assert.throws(() => parseStage2bArgs(['smoke', '--extra']), /smoke/);
+  assert.throws(() => parseStage2bArgs(['smoke', '--task']), /task/i);
+  assert.throws(() => parseStage2bArgs(['smoke', '--task', 'T3']), /task/i);
   assert.throws(() => parseStage2bArgs(['formal']), /smoke/);
 });
 
@@ -208,6 +298,35 @@ test('main records a safe setup failure when the API key is missing', async t =>
   assert.doesNotMatch(JSON.stringify(record), /DEEPSEEK_API_KEY|must not be reached/);
 });
 
+test('main routes the selected task into the record and summary', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+  let output = '';
+
+  const exitCode = await main(['smoke', '--task', 'T6'], {
+    repositoryRoot,
+    env: { DEEPSEEK_API_KEY: 'offline-test-key' },
+    writeOutput: text => { output += text; },
+    dependencies: {
+      createModelClient: () => new ScriptedModel([
+        toolTurn('call-t6', '.', { type: 'file', path: 'missing.json' }),
+        finalTurn(null, 'The required file does not exist.', 'cannot_complete')
+      ]),
+      connectTools: options => McpToolBridge.connect({
+        ...options,
+        serverEntrypoint: resolve('dist/src/mcp/server.js')
+      })
+    }
+  });
+
+  assert.equal(exitCode, 0);
+  const summary = JSON.parse(output) as { taskId: string; recordPath: string };
+  assert.equal(summary.taskId, 'T6');
+  const record = JSON.parse(await readFile(summary.recordPath, 'utf8')) as { taskId: string };
+  assert.equal(record.taskId, 'T6');
+});
+
 test('accepts one nested answer in a fenced provider wrapper', async t => {
   const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
@@ -287,5 +406,49 @@ function usage(inputTokens: number, outputTokens: number) {
     outputTokens,
     reasoningOutputTokens: 0,
     totalTokens: inputTokens + outputTokens
+  };
+}
+
+class ScriptedModel implements ModelTurnClient {
+  readonly requests: ModelTurnRequest[] = [];
+
+  constructor(private readonly turns: ModelTurnResult[]) {}
+
+  async createTurn(request: ModelTurnRequest): Promise<ModelTurnResult> {
+    this.requests.push(request);
+    const turn = this.turns[this.requests.length - 1];
+    if (!turn) throw new Error('Unexpected model turn.');
+    return turn;
+  }
+}
+
+function toolTurn(
+  callId: string,
+  filter: string,
+  source: Record<string, unknown>
+): ModelTurnResult {
+  const call = {
+    callId,
+    name: 'jq_query',
+    arguments: JSON.stringify({ filter, source })
+  };
+  return {
+    historyItems: [{ type: 'function_call', ...call }],
+    functionCalls: [call],
+    usage: usage(10, 2)
+  };
+}
+
+function finalTurn(
+  answer: unknown,
+  explanation: string,
+  status: 'completed' | 'cannot_complete' = 'completed'
+): ModelTurnResult {
+  const text = JSON.stringify({ status, answer, explanation });
+  return {
+    historyItems: [{ type: 'message', role: 'assistant', content: text }],
+    functionCalls: [],
+    finalText: text,
+    usage: usage(10, 2)
   };
 }

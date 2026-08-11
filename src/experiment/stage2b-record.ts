@@ -14,6 +14,8 @@ export type Stage2bToolEvent = Extract<
   { type: 'function_call' | 'function_call_output' }
 >;
 
+export type Stage2bTaskId = 'T1' | 'T2' | 'T6' | 'T7';
+
 export interface Stage2bRecord {
   version: 1;
   runId: string;
@@ -21,7 +23,7 @@ export interface Stage2bRecord {
   provider: 'deepseek';
   model: 'deepseek-v4-flash';
   thinking: 'none';
-  taskId: 'T1';
+  taskId: Stage2bTaskId;
   condition: 'explicit';
   status: AgentRunStatus;
   taskSuccess: boolean | null;

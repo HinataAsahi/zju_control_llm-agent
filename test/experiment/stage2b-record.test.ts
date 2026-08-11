@@ -65,6 +65,20 @@ test('writes a local record atomically with restrictive permissions', async t =>
   assert.deepEqual(await readdir(join(root, '.experiment-runs/stage-2b/stage2b-T1-explicit-test')), ['record.json']);
 });
 
+test('accepts every Stage 2B representative task ID', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'stage2b-record-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  for (const taskId of ['T1', 'T2', 'T6', 'T7'] as const) {
+    const value: Stage2bRecord = {
+      ...record(`stage2b-${taskId}-explicit-test`),
+      taskId
+    };
+    const path = await writeStage2bRecord(root, value);
+    assert.equal((JSON.parse(await readFile(path, 'utf8')) as Stage2bRecord).taskId, taskId);
+  }
+});
+
 test('atomically replaces the same record without leaving temporary files', async t => {
   const root = await mkdtemp(join(tmpdir(), 'stage2b-record-'));
   t.after(() => rm(root, { recursive: true, force: true }));
