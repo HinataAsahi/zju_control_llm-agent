@@ -195,6 +195,14 @@ unset DEEPSEEK_API_KEY
 
 `--task` 可取 `T1`、`T2`、`T6` 或 `T7`，`--condition` 可取 `explicit`、`description` 或 `skill`。命令会产生 DeepSeek API 费用；命令行只输出运行摘要，详细记录保存在已忽略的本地目录中。Stage 2B 不会自动重试失败请求，避免基础设施错误造成不可见的额外费用。
 
+在批量执行前，我可以先生成完全离线的实验计划：
+
+```bash
+npm run experiment:stage2b -- plan --repetitions 2
+```
+
+`plan` 固定展开 T2、T7 与三种条件的笛卡尔积，`--repetitions` 接受 `1..100` 的整数，默认为 1。它不读取 API 密钥、不连接 MCP、不会创建本地运行记录，也不会产生费用。输出中的 `totalRuns` 是计划实验数；`upperBounds.modelRequests` 和 `upperBounds.toolCalls` 分别按每次实验最多 5 轮、4 次工具调用计算，是理论安全上限而不是实际用量或费用预测。
+
 ## 项目结构
 
 ```text
@@ -214,4 +222,4 @@ docs/learning-notes/             前期学习材料
 
 ## 下一步
 
-Stage 2B 已完成四类 Explicit 代表路径，以及 T2、T7 的 Description/Skill 真实单次对比。下一步将把当前烟雾入口扩展为可配置的重复实验执行器，记录随机性参数并支持断点恢复；随后生成脱敏的结构化汇总和带不确定性说明的统计报告，而不是继续依赖人工整理单次记录。
+Stage 2B 已完成四类 Explicit 代表路径、T2/T7 的 Description/Skill 真实单次对比，以及不产生费用的重复实验计划预览。下一步将让执行器消费这份稳定计划，记录随机性参数并支持断点恢复；随后生成脱敏的结构化汇总和带不确定性说明的统计报告，而不是继续依赖人工整理单次记录。
