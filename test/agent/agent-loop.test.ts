@@ -295,6 +295,43 @@ test('does not execute a fifth tool call', async () => {
   assert.equal(gateway.closes, 1);
 });
 
+test('allows a final answer after four separate tool-call turns', async () => {
+  const calls = Array.from({ length: 4 }, (_, index) => ({
+    callId: `call-${index}`,
+    name: 'jq_query',
+    arguments: '{}'
+  }));
+  const finalText = '{"status":"completed","answer":3,"explanation":"Recovered within the tool budget."}';
+  const client = fakeClient([
+    ...calls.map(call => ({
+      historyItems: [{ type: 'function_call' as const, ...call }],
+      functionCalls: [call],
+      usage: usage(1, 1)
+    })),
+    {
+      historyItems: [{ type: 'message' as const, role: 'assistant' as const, content: finalText }],
+      functionCalls: [],
+      finalText,
+      usage: usage(1, 1)
+    }
+  ]);
+  const gateway = fakeGateway(['{}', '{}', '{}', '{}']);
+
+  const result = await runAgent({
+    client,
+    tools: gateway,
+    instructions: 'Use tools.',
+    input: 'Count.',
+    outputSchema: finalSchema,
+    parseFinalAnswer: textValue => parseExperimentAnswer(JSON.parse(textValue))
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.turns, 5);
+  assert.equal(result.toolCalls, 4);
+  assert.equal(gateway.calls.length, 4);
+});
+
 test('classifies API, MCP, and invalid final output without exposing raw errors', async t => {
   await t.test('API', async () => {
     const gateway = fakeGateway();

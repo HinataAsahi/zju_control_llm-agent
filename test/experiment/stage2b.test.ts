@@ -87,7 +87,7 @@ test('runs fake model to real MCP for the explicit T1 smoke', async t => {
   assert.equal(record.turns, 2);
   assert.equal(record.toolCalls, 1);
   assert.deepEqual(record.limits, {
-    maxTurns: 4,
+    maxTurns: 5,
     maxToolCalls: 4,
     requestTimeoutMs: 60_000,
     totalTimeoutMs: 120_000

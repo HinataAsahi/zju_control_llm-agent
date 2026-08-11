@@ -21,7 +21,7 @@ function record(runId = 'stage2b-T1-explicit-test'): Stage2bRecord {
     status: 'completed',
     taskSuccess: true,
     limits: {
-      maxTurns: 4,
+      maxTurns: 5,
       maxToolCalls: 4,
       requestTimeoutMs: 60_000,
       totalTimeoutMs: 120_000
