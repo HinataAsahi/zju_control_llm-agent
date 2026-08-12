@@ -8,7 +8,7 @@ import {
 } from '../../src/experiment/stage2b-suite.js';
 
 test('expands diagnostic-v1 in its fixed balanced order', () => {
-  assert.deepEqual(expandStage2bSuite('diagnostic-v1', 1), [
+  assert.deepEqual(expandStage2bSuite('diagnostic-v1', 2), [
     { taskId: 'T9', condition: 'explicit', repetition: 1 },
     { taskId: 'T10', condition: 'description', repetition: 1 },
     { taskId: 'T11', condition: 'skill', repetition: 1 },
@@ -17,9 +17,17 @@ test('expands diagnostic-v1 in its fixed balanced order', () => {
     { taskId: 'T11', condition: 'explicit', repetition: 1 },
     { taskId: 'T9', condition: 'skill', repetition: 1 },
     { taskId: 'T10', condition: 'explicit', repetition: 1 },
-    { taskId: 'T11', condition: 'description', repetition: 1 }
+    { taskId: 'T11', condition: 'description', repetition: 1 },
+    { taskId: 'T9', condition: 'explicit', repetition: 2 },
+    { taskId: 'T10', condition: 'description', repetition: 2 },
+    { taskId: 'T11', condition: 'skill', repetition: 2 },
+    { taskId: 'T9', condition: 'description', repetition: 2 },
+    { taskId: 'T10', condition: 'skill', repetition: 2 },
+    { taskId: 'T11', condition: 'explicit', repetition: 2 },
+    { taskId: 'T9', condition: 'skill', repetition: 2 },
+    { taskId: 'T10', condition: 'explicit', repetition: 2 },
+    { taskId: 'T11', condition: 'description', repetition: 2 }
   ]);
-  assert.equal(expandStage2bSuite('diagnostic-v1', 2)[9]?.repetition, 2);
 });
 
 test('preserves baseline-v1 cell-major ordering across repetitions', () => {

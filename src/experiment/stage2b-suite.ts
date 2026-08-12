@@ -80,7 +80,17 @@ export function expandStage2bSuite(
   if (!Number.isSafeInteger(repetitions) || repetitions < 1) {
     throw new Error('Stage 2B repetitions must be a positive safe integer.');
   }
-  return getStage2bSuite(id).runs.flatMap(run =>
+  const suite = getStage2bSuite(id);
+  if (id === 'diagnostic-v1') {
+    return Array.from({ length: repetitions }, (_, index) =>
+      suite.runs.map(run => ({
+        taskId: run.taskId,
+        condition: run.condition,
+        repetition: index + 1
+      }))
+    ).flat();
+  }
+  return suite.runs.flatMap(run =>
     Array.from({ length: repetitions }, (_, index) => ({
       taskId: run.taskId,
       condition: run.condition,
