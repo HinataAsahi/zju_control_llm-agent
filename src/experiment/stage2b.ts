@@ -40,12 +40,14 @@ import {
   reconcileStage2bBatch,
   recordStage2bBatchRun
 } from './stage2b-batch.js';
+import { evaluateStage2bRecovery } from './stage2b-evaluation.js';
 import {
   createStage2bPlan,
   STAGE2B_PLAN_MAX_REPETITIONS,
   validateStage2bPlanRepetitions
 } from './stage2b-plan.js';
 import {
+  getStage2bTaskProfile,
   STAGE2B_TASK_IDS,
   type Stage2bSuiteId
 } from './stage2b-suite.js';
@@ -176,6 +178,8 @@ export async function runStage2bSmoke(options: {
   const condition = options.condition ?? 'explicit';
   const dependencies = { ...defaultDependencies, ...options.dependencies };
   const experimentRoot = resolve(repositoryRoot, 'experiments/stage-2a');
+  const taskProfile = getStage2bTaskProfile(taskId);
+  const taskRoot = resolve(repositoryRoot, `experiments/${taskProfile.taskRoot}`);
   const runRoot = resolve(repositoryRoot, '.experiment-runs/stage-2b');
   const serverEntrypoint = resolve(repositoryRoot, 'dist/src/mcp/server.js');
   const temperature = options.temperature === undefined
@@ -194,13 +198,14 @@ export async function runStage2bSmoke(options: {
   };
   try {
     const apiKey = requireDeepSeekApiKey({ DEEPSEEK_API_KEY: options.apiKey });
-    const tasks = await loadTasks(experimentRoot);
+    const tasks = await loadTasks(taskRoot);
     const task = tasks.find(candidate => candidate.id === taskId);
     if (!task) throw new Error(`Stage 2B requires task ${taskId}.`);
     const workspace = await prepareWorkspace({
       task,
       condition,
       experimentRoot,
+      taskRoot,
       runRoot,
       runId
     });
@@ -259,6 +264,10 @@ export async function runStage2bSmoke(options: {
   });
   const finishedAt = dependencies.now();
   const finalAnswer = result.finalAnswer;
+  const taskSuccess = finalAnswer
+    ? answerMatchesExpected(finalAnswer, setup.task.expected)
+    : null;
+  const toolEvents = result.history.filter(isToolEvent);
 
   return {
     version: 1,
@@ -271,14 +280,17 @@ export async function runStage2bSmoke(options: {
     taskId,
     condition,
     status: result.status,
-    taskSuccess: finalAnswer
-      ? answerMatchesExpected(finalAnswer, setup.task.expected)
-      : null,
-    recoverySuccess: evaluateRecovery(taskId, result.status, result.history),
+    taskSuccess,
+    recoverySuccess: evaluateStage2bRecovery({
+      taskId,
+      status: result.status,
+      taskSuccess,
+      toolEvents
+    }),
     limits,
     turns: result.turns,
     toolCalls: result.toolCalls,
-    toolEvents: result.history.filter(isToolEvent),
+    toolEvents,
     ...(finalAnswer ? { finalAnswer } : {}),
     usage: { ...result.usage },
     durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
@@ -596,53 +608,6 @@ async function instructionsForCondition(
 function isToolEvent(item: unknown): item is Stage2bToolEvent {
   return isRecord(item)
     && (item.type === 'function_call' || item.type === 'function_call_output');
-}
-
-function evaluateRecovery(
-  taskId: Stage2bTaskId,
-  status: Stage2bRecord['status'],
-  history: readonly unknown[]
-): boolean | null {
-  if (taskId !== 'T7' || status !== 'completed') return null;
-  const events = history.filter(isToolEvent);
-  const calls = events.filter(event => event.type === 'function_call');
-  const firstCall = calls[0];
-  if (!firstCall || firstCall.name !== 'jq_query') return false;
-
-  const firstArguments = parseJsonRecord(firstCall.arguments);
-  const firstOutput = events.find(event =>
-    event.type === 'function_call_output' && event.callId === firstCall.callId
-  );
-  const firstResult = firstOutput?.type === 'function_call_output'
-    ? parseJsonRecord(firstOutput.output)
-    : undefined;
-  if (
-    firstArguments?.filter !== 'if'
-    || firstResult?.ok !== false
-    || !isRecord(firstResult.error)
-    || firstResult.error.code !== 'JQ_SYNTAX_ERROR'
-  ) {
-    return false;
-  }
-
-  return calls.slice(1).some(call => {
-    if (call.name !== 'jq_query') return false;
-    const output = events.find(event =>
-      event.type === 'function_call_output' && event.callId === call.callId
-    );
-    return output?.type === 'function_call_output'
-      ? parseJsonRecord(output.output)?.ok === true
-      : false;
-  });
-}
-
-function parseJsonRecord(text: string): Record<string, unknown> | undefined {
-  try {
-    const value: unknown = JSON.parse(text);
-    return isRecord(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

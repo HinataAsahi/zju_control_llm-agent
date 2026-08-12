@@ -206,6 +206,135 @@ test('runs representative file, recovery, and missing-file tasks through real MC
   }
 });
 
+test('runs diagnostic tasks through their isolated task root and real MCP', async t => {
+  const scenarios: Array<{
+    name: string;
+    taskId: 'T9' | 'T10' | 'T11';
+    condition: 'explicit' | 'description' | 'skill';
+    turns: ModelTurnResult[];
+    expectedAnswer: unknown;
+    expectedToolCalls: number;
+    expectedRecovery: boolean | null;
+    expectedToolOutput?: RegExp;
+  }> = [{
+    name: 'T9 avoids jq for a plain-text answer',
+    taskId: 'T9',
+    condition: 'explicit',
+    turns: [finalTurn(2, 'Counted the two ERROR lines directly.')],
+    expectedAnswer: 2,
+    expectedToolCalls: 0,
+    expectedRecovery: null
+  }, {
+    name: 'T10 aggregates shipments in one query',
+    taskId: 'T10',
+    condition: 'description',
+    turns: [
+      toolTurn(
+        'call-t10',
+        '.shipments | map(select(.status != "cancelled")) | group_by(.region) | map({region: .[0].region, revenue: (map(.unitPrice * .quantity) | add)}) | sort_by(-.revenue, .region) | .[:2]',
+        { type: 'file', path: 'shipments.json' }
+      ),
+      finalTurn([
+        { region: 'east', revenue: 245 },
+        { region: 'north', revenue: 180 }
+      ], 'Aggregated non-cancelled shipment revenue.')
+    ],
+    expectedAnswer: [
+      { region: 'east', revenue: 245 },
+      { region: 'north', revenue: 180 }
+    ],
+    expectedToolCalls: 1,
+    expectedRecovery: null,
+    expectedToolOutput: /east.*245.*north.*180/
+  }, {
+    name: 'T11 inspects the metrics root before querying',
+    taskId: 'T11',
+    condition: 'skill',
+    turns: [
+      toolTurn('call-t11-inspect', '.', { type: 'file', path: 'metrics.json' }),
+      toolTurn(
+        'call-t11-query',
+        '.payload.series | map(select(.samples[-1].latencyMs > 200) | .service) | sort',
+        { type: 'file', path: 'metrics.json' }
+      ),
+      finalTurn(['api', 'search'], 'Inspected the root and selected latest high latency samples.')
+    ],
+    expectedAnswer: ['api', 'search'],
+    expectedToolCalls: 2,
+    expectedRecovery: null,
+    expectedToolOutput: /api.*search/
+  }, {
+    name: 'T11 recovers from a root-unaware query',
+    taskId: 'T11',
+    condition: 'explicit',
+    turns: [
+      toolTurn(
+        'call-t11-error',
+        '.series | map(select(.samples[-1].latencyMs > 200) | .service) | sort',
+        { type: 'file', path: 'metrics.json' }
+      ),
+      toolTurn(
+        'call-t11-retry',
+        '.payload.series | map(select(.samples[-1].latencyMs > 200) | .service) | sort',
+        { type: 'file', path: 'metrics.json' }
+      ),
+      finalTurn(['api', 'search'], 'Corrected the query after the runtime error.')
+    ],
+    expectedAnswer: ['api', 'search'],
+    expectedToolCalls: 2,
+    expectedRecovery: true,
+    expectedToolOutput: /JQ_RUNTIME_ERROR[\s\S]*api.*search/
+  }];
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async t => {
+      const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-diagnostic-smoke-'));
+      t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+      await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+      const model = new ScriptedModel(scenario.turns);
+
+      const record = await runStage2bSmoke({
+        repositoryRoot,
+        taskId: scenario.taskId,
+        condition: scenario.condition,
+        apiKey: 'offline-test-key',
+        dependencies: {
+          createModelClient: () => model,
+          connectTools: options => McpToolBridge.connect({
+            ...options,
+            serverEntrypoint: resolve('dist/src/mcp/server.js')
+          })
+        }
+      });
+
+      assert.equal(record.status, 'completed');
+      assert.equal(record.taskSuccess, true);
+      assert.equal(record.recoverySuccess, scenario.expectedRecovery);
+      assert.deepEqual(record.finalAnswer?.answer, scenario.expectedAnswer);
+      assert.equal(record.toolCalls, scenario.expectedToolCalls);
+      if (scenario.expectedToolOutput) {
+        assert.match(record.toolEvents
+          .filter(event => event.type === 'function_call_output')
+          .map(event => event.output)
+          .join('\n'), scenario.expectedToolOutput);
+      }
+      const firstRequest = model.requests[0];
+      assert.ok(firstRequest);
+      const input = firstRequest.history[0]?.type === 'message'
+        ? firstRequest.history[0].content
+        : '';
+      assert.doesNotMatch(input, /experiments\/stage-2[ab]|fixtures\//);
+      if (scenario.condition === 'description') {
+        assert.doesNotMatch(input, /Use the `jq_query` tool|Do not call/i);
+      }
+      if (scenario.condition === 'skill') {
+        assert.match(firstRequest.instructions, /Reference skill: jq-query/);
+        assert.doesNotMatch(input, /Use the `jq_query` tool|Do not call/i);
+      }
+    });
+  }
+});
+
 test('does not count a correct T7 answer without the required recovery path', async t => {
   const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
   t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
