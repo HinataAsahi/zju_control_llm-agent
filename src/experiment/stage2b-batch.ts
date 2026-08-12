@@ -14,14 +14,28 @@ import {
   createStage2bPlan,
   STAGE2B_PLAN_MAX_REPETITIONS
 } from './stage2b-plan.js';
+import {
+  expandStage2bSuite,
+  STAGE2B_TASK_IDS,
+  type Stage2bSuiteId
+} from './stage2b-suite.js';
 
 export type Stage2bBatchRunStatus = 'pending' | 'running' | 'completed' | 'failed';
 
+const batchIdSchema = z.string().regex(/^stage2b-batch-[A-Za-z0-9._-]+$/);
+const createdAtSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+const samplingSchema = z.strictObject({
+  temperature: z.number().min(0).max(2).nullable()
+});
+const repetitionsSchema = z.number().int().min(1).max(STAGE2B_PLAN_MAX_REPETITIONS);
+const conditionSchema = z.enum(['explicit', 'description', 'skill']);
+const taskIdSchema = z.enum(STAGE2B_TASK_IDS);
+
 const runIdentityShape = {
-  runKey: z.string().regex(/^T[27]-(?:explicit|description|skill)-r[1-9]\d*$/),
-  taskId: z.enum(['T2', 'T7']),
-  condition: z.enum(['explicit', 'description', 'skill']),
-  repetition: z.number().int().min(1).max(STAGE2B_PLAN_MAX_REPETITIONS)
+  runKey: z.string().regex(/^T(?:1|2|6|7|9|10|11)-(?:explicit|description|skill)-r[1-9]\d*$/),
+  taskId: taskIdSchema,
+  condition: conditionSchema,
+  repetition: repetitionsSchema
 };
 
 const pendingBatchRunSchema = z.strictObject({
@@ -60,26 +74,45 @@ const stage2bLimitsSchema = z.strictObject({
   { message: 'Stage 2B limits must reserve one final-answer turn.' }
 );
 
-const stage2bBatchManifestSchema = z.strictObject({
-  version: z.literal(1),
-  batchId: z.string().regex(/^stage2b-batch-[A-Za-z0-9._-]+$/),
-  createdAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+const stage2bBatchRunSchema = z.discriminatedUnion('status', [
+  pendingBatchRunSchema,
+  runningBatchRunSchema,
+  terminalBatchRunSchema
+]);
+
+const sharedManifestShape = {
+  batchId: batchIdSchema,
+  createdAt: createdAtSchema,
   provider: z.literal('deepseek'),
   model: z.literal(DEEPSEEK_MODEL),
   thinking: z.literal('none'),
-  sampling: z.strictObject({
-    temperature: z.number().min(0).max(2).nullable()
-  }).default({ temperature: null }),
-  repetitions: z.number().int().min(1).max(STAGE2B_PLAN_MAX_REPETITIONS),
+  repetitions: repetitionsSchema,
   totalRuns: z.number().int().min(1),
   limits: stage2bLimitsSchema,
-  runs: z.array(z.discriminatedUnion('status', [
-    pendingBatchRunSchema,
-    runningBatchRunSchema,
-    terminalBatchRunSchema
-  ]))
-}).superRefine((manifest, context) => {
-  const expected = createStage2bPlan(manifest.repetitions).runs;
+  runs: z.array(stage2bBatchRunSchema)
+};
+
+const stage2bBatchManifestV1Schema = z.strictObject({
+  version: z.literal(1),
+  ...sharedManifestShape,
+  sampling: samplingSchema.default({ temperature: null })
+});
+
+const stage2bBatchManifestV2Schema = z.strictObject({
+  version: z.literal(2),
+  suite: z.enum(['baseline-v1', 'diagnostic-v1']),
+  ...sharedManifestShape,
+  sampling: samplingSchema
+});
+
+const stage2bBatchManifestSchema = z.discriminatedUnion('version', [
+  stage2bBatchManifestV1Schema,
+  stage2bBatchManifestV2Schema
+]).superRefine((manifest, context) => {
+  const expected = expandStage2bSuite(
+    stage2bManifestSuite(manifest),
+    manifest.repetitions
+  );
   if (manifest.totalRuns !== expected.length || manifest.runs.length !== expected.length) {
     context.addIssue({ code: 'custom', path: ['totalRuns'], message: 'Batch size mismatch.' });
     return;
@@ -105,15 +138,21 @@ export type Stage2bBatchRun = z.infer<typeof pendingBatchRunSchema>
   | z.infer<typeof terminalBatchRunSchema>;
 export type Stage2bBatchManifest = z.infer<typeof stage2bBatchManifestSchema>;
 
+export function stage2bManifestSuite(manifest: Stage2bBatchManifest): Stage2bSuiteId {
+  return manifest.version === 1 ? 'baseline-v1' : manifest.suite;
+}
+
 export async function prepareStage2bBatch(options: {
   repositoryRoot: string;
+  suite: Stage2bSuiteId;
   repetitions: number;
   createdAt: Date;
 }): Promise<{ manifest: Stage2bBatchManifest; manifestPath: string }> {
-  const plan = createStage2bPlan(options.repetitions);
+  const plan = createStage2bPlan(options.repetitions, options.suite);
   const batchId = createBatchId(options.createdAt);
   const manifest: Stage2bBatchManifest = {
-    version: 1,
+    version: 2,
+    suite: options.suite,
     batchId,
     createdAt: options.createdAt.toISOString(),
     provider: 'deepseek',
@@ -324,7 +363,7 @@ async function readOptionalRecordSummary(
   validateManifestText(text);
   const summary = z.object({
     runId: z.string().refine(isStage2bRunId),
-    taskId: z.enum(['T1', 'T2', 'T6', 'T7']),
+    taskId: taskIdSchema,
     condition: z.enum(['explicit', 'description', 'skill']),
     status: z.enum([
       'completed',

@@ -409,6 +409,9 @@ function publicRun(
   run: Stage2bBatchRun,
   records: Map<string, Stage2bReportRecord>
 ): Stage2bPublicRun {
+  if (run.taskId !== 'T2' && run.taskId !== 'T7') {
+    throw new Error('Stage 2B version 3 reports require a baseline suite.');
+  }
   if (run.status === 'pending' || run.status === 'running') {
     throw new Error('Stage 2B report cannot include a non-terminal run.');
   }

@@ -22,7 +22,9 @@ import {
 } from '../../src/experiment/stage2b-record.js';
 import {
   claimNextStage2bBatchRun,
-  readStage2bBatchManifest
+  readStage2bBatchManifest,
+  recordStage2bBatchRun,
+  stage2bManifestSuite
 } from '../../src/experiment/stage2b-batch.js';
 
 class T1FakeModel implements ModelTurnClient {
@@ -468,11 +470,13 @@ test('prepares a private pending batch manifest without credentials or tool conn
   assert.equal(exitCode, 0);
   const summary = JSON.parse(output) as {
     batchId: string;
+    suite: string;
     totalRuns: number;
     pendingRuns: number;
     manifestPath: string;
   };
   assert.match(summary.batchId, /^stage2b-batch-20260811T080000000Z-[a-f0-9]{8}$/);
+  assert.equal(summary.suite, 'baseline-v1');
   assert.equal(summary.totalRuns, 12);
   assert.equal(summary.pendingRuns, 12);
   assert.equal(
@@ -482,6 +486,7 @@ test('prepares a private pending batch manifest without credentials or tool conn
 
   const manifest = JSON.parse(await readFile(summary.manifestPath, 'utf8')) as {
     version: number;
+    suite: string;
     batchId: string;
     createdAt: string;
     provider: string;
@@ -501,6 +506,7 @@ test('prepares a private pending batch manifest without credentials or tool conn
   };
   assert.deepEqual({
     version: manifest.version,
+    suite: manifest.suite,
     batchId: manifest.batchId,
     createdAt: manifest.createdAt,
     provider: manifest.provider,
@@ -511,7 +517,8 @@ test('prepares a private pending batch manifest without credentials or tool conn
     totalRuns: manifest.totalRuns,
     limits: manifest.limits
   }, {
-    version: 1,
+    version: 2,
+    suite: 'baseline-v1',
     batchId: summary.batchId,
     createdAt: '2026-08-11T08:00:00.000Z',
     provider: 'deepseek',
@@ -549,6 +556,116 @@ test('prepares a private pending batch manifest without credentials or tool conn
   assert.doesNotMatch(JSON.stringify(manifest), /API_KEY|Authorization|Bearer|\/(?:home|Users)\//i);
 });
 
+test('writes version 2 diagnostic manifests and maps version 1 manifests to baseline', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-manifest-version-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+
+  let diagnosticOutput = '';
+  await main(['prepare', '--suite', 'diagnostic-v1'], {
+    repositoryRoot,
+    writeOutput: text => { diagnosticOutput += text; },
+    dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
+  });
+  const diagnosticSummary = JSON.parse(diagnosticOutput) as {
+    batchId: string;
+    suite: string;
+    manifestPath: string;
+  };
+  const diagnostic = await readStage2bBatchManifest(repositoryRoot, diagnosticSummary.batchId);
+
+  assert.equal(diagnosticSummary.suite, 'diagnostic-v1');
+  assert.equal(diagnostic.manifest.version, 2);
+  assert.equal(stage2bManifestSuite(diagnostic.manifest), 'diagnostic-v1');
+  assert.deepEqual(diagnostic.manifest.runs.map(run => run.runKey), [
+    'T9-explicit-r1', 'T10-description-r1', 'T11-skill-r1',
+    'T9-description-r1', 'T10-skill-r1', 'T11-explicit-r1',
+    'T9-skill-r1', 'T10-explicit-r1', 'T11-description-r1'
+  ]);
+
+  let baselineOutput = '';
+  await main(['prepare'], {
+    repositoryRoot,
+    writeOutput: text => { baselineOutput += text; },
+    dependencies: { now: () => new Date('2026-08-11T08:00:01.000Z') }
+  });
+  const baselineSummary = JSON.parse(baselineOutput) as {
+    batchId: string;
+    manifestPath: string;
+  };
+  const legacy = JSON.parse(await readFile(baselineSummary.manifestPath, 'utf8')) as Record<string, unknown>;
+  legacy.version = 1;
+  delete legacy.suite;
+  await writeFile(baselineSummary.manifestPath, `${JSON.stringify(legacy, null, 2)}\n`, 'utf8');
+
+  const loadedLegacy = await readStage2bBatchManifest(repositoryRoot, baselineSummary.batchId);
+  assert.equal(loadedLegacy.manifest.version, 1);
+  assert.equal(stage2bManifestSuite(loadedLegacy.manifest), 'baseline-v1');
+  assert.equal('suite' in loadedLegacy.manifest, false);
+
+  const claimed = await claimNextStage2bBatchRun({
+    repositoryRoot,
+    batchId: baselineSummary.batchId,
+    claimedAt: new Date('2026-08-11T08:01:00.000Z')
+  });
+  assert.ok(claimed.run);
+  const record = completedBatchRecord(claimed.run.recordRunId);
+  await writeStage2bRecord(repositoryRoot, record);
+  await recordStage2bBatchRun({
+    repositoryRoot,
+    batchId: baselineSummary.batchId,
+    runKey: claimed.run.runKey,
+    record
+  });
+  const persistedLegacy = JSON.parse(await readFile(baselineSummary.manifestPath, 'utf8')) as {
+    version: number;
+    suite?: string;
+  };
+  assert.equal(persistedLegacy.version, 1);
+  assert.equal('suite' in persistedLegacy, false);
+});
+
+test('rejects manifests whose version, suite, and run order disagree', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-invalid-manifest-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  let output = '';
+  await main(['prepare', '--suite', 'diagnostic-v1', '--repetitions', '2'], {
+    repositoryRoot,
+    writeOutput: text => { output += text; },
+    dependencies: { now: () => new Date('2026-08-11T08:00:00.000Z') }
+  });
+  const { batchId, manifestPath } = JSON.parse(output) as {
+    batchId: string;
+    manifestPath: string;
+  };
+  const valid = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+    version: number;
+    suite?: string;
+    runs: Array<{ repetition: number }>;
+  };
+
+  const version1WithDiagnosticTasks = { ...valid, version: 1 };
+  delete version1WithDiagnosticTasks.suite;
+  await writeFile(manifestPath, `${JSON.stringify(version1WithDiagnosticTasks, null, 2)}\n`);
+  await assert.rejects(
+    readStage2bBatchManifest(repositoryRoot, batchId),
+    /batch (?:size|plan) mismatch/i
+  );
+
+  const version2WithoutSuite = { ...valid };
+  delete version2WithoutSuite.suite;
+  await writeFile(manifestPath, `${JSON.stringify(version2WithoutSuite, null, 2)}\n`);
+  await assert.rejects(readStage2bBatchManifest(repositoryRoot, batchId));
+
+  const cellMajorRuns = [
+    ...valid.runs.filter(run => run.repetition === 1).flatMap((run, index) => [
+      run,
+      valid.runs.filter(candidate => candidate.repetition === 2)[index]
+    ])
+  ];
+  await writeFile(manifestPath, `${JSON.stringify({ ...valid, runs: cellMajorRuns }, null, 2)}\n`);
+  await assert.rejects(readStage2bBatchManifest(repositoryRoot, batchId), /batch plan mismatch/i);
+});
+
 test('refuses to prepare a batch through a symlinked batches directory', async t => {
   const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-prepare-'));
   const outside = await mkdtemp(join(tmpdir(), 'stage2b-outside-'));
@@ -579,6 +696,8 @@ test('normalizes a legacy batch without sampling metadata to provider defaults',
     manifestPath: string;
   };
   const legacy = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+  legacy.version = 1;
+  delete legacy.suite;
   delete legacy.sampling;
   legacy.limits = {
     maxTurns: 5,

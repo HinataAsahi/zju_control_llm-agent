@@ -359,11 +359,13 @@ export async function main(
     const dependencies = { ...defaultDependencies, ...options.dependencies };
     const prepared = await prepareStage2bBatch({
       repositoryRoot,
+      suite: command.suite,
       repetitions: command.repetitions,
       createdAt: dependencies.now()
     });
     const output = `${JSON.stringify({
       batchId: prepared.manifest.batchId,
+      suite: command.suite,
       totalRuns: prepared.manifest.totalRuns,
       pendingRuns: prepared.manifest.runs.length,
       manifestPath: prepared.manifestPath
