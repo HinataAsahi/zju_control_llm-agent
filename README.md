@@ -117,7 +117,19 @@
 
 基于这个结果，我实现了独立的 `boundary-v1` 套件。它增加 T12-T17 三组配对任务，分别覆盖计数、条件筛选和分组聚合；每组保持数据含义、问题和答案一致，只把输入表示改为纯文本负例或内联 JSON 正例。同期条件固定为 `Description`、冻结的 `Skill v1` 和带顺序决策门的 `Boundary Skill v2`，一轮共 18 次运行。
 
-两个 Skill 以独立资产保存。边界型 v2 要求依次检查来源、任务和可用性，三道门全部通过后才能调用 `jq_query`，并禁止先把非 JSON 数据重编码成 JSON 来绕过边界。v3 批次清单保存两个 Skill 的 SHA-256，record v2 保存实际 treatment 与 Skill 身份；运行前和工作区复制后都会核对哈希，不一致时在创建付费模型客户端前停止。独立报告会同时计算任务正确性和工具合规，并按预先固定的严格门槛决定是否值得追加两轮确认实验。目前这些能力只完成了离线实现和验证，尚未写入真实结果。
+两个 Skill 以独立资产保存。边界型 v2 要求依次检查来源、任务和可用性，三道门全部通过后才能调用 `jq_query`，并禁止先把非 JSON 数据重编码成 JSON 来绕过边界。v3 批次清单保存两个 Skill 的 SHA-256，record v2 保存实际 treatment 与 Skill 身份；运行前和工作区复制后都会核对哈希，不一致时在创建付费模型客户端前停止。
+
+首轮 18 项真实实验全部完成且答案正确，没有基础设施失败、自动重试或预算超限；总计 26 个模型回合、8 次工具调用和 31065 Token。按 treatment 汇总如下：
+
+| 条件 | 任务正确 | 纯文本负例合规 | JSON 正例合规 | 回合 | 工具调用 | 总 Token |
+|---|---:|---:|---:|---:|---:|---:|
+| `Description` | 6/6 | 3/3 | 2/3 | 9 | 3 | 8109 |
+| `Skill v1` | 6/6 | 3/3 | 1/3 | 8 | 2 | 10457 |
+| `Boundary Skill v2` | 6/6 | 3/3 | 2/3 | 9 | 3 | 12499 |
+
+预先固定的首轮门控没有通过：v2 虽然达到 6/6 答案正确和 3/3 纯文本负例零调用，但 JSON 正例只有 2/3 发生成功工具调用，而且 v1 和 Description 在负例上也都是 3/3 合规，v2 没有形成相对改善。因此我没有追加两轮付费实验。
+
+逐项轨迹显示，纯文本负例在三种条件下都足够容易直接作答；JSON 正例的选择反而随任务复杂度变化：简单计数有两个条件调用工具，中等筛选三个条件都直接作答，复杂聚合三个条件都调用工具并从同类 jq 运行时错误中恢复。这说明本轮更明显地观察到了任务复杂度效应，而不是边界 Skill 对工具适用性判断的稳定增益。v2 的 Token 成本仍最高，所以不能把增加说明长度本身视为改进。
 
 ## Stage 2A 观察结果
 
@@ -142,6 +154,8 @@
 - `experiments/stage-2b/results/report.zh.md`：Stage 2B 配置、逐项指标、脱敏工具调用路径和解读边界。
 - `experiments/stage-2b/results/diagnostic-v1/observations.json`：27 条诊断观测及其工具合规、首次调用结果和过程策略；
 - `experiments/stage-2b/results/diagnostic-v1/report.zh.md`：诊断套件的逐项结果、成本与解读边界。
+- `experiments/stage-2b/results/boundary-v1/observations.json`：18 条配对边界观测、条件汇总和预注册门控结果；
+- `experiments/stage-2b/results/boundary-v1/report.zh.md`：边界型 Skill 首轮结果、成本与停止决定。
 
 原始 JSONL、stderr、临时工作区和校准记录位于本机 `.experiment-runs/`，不会提交到 GitHub。
 
@@ -308,7 +322,13 @@ npm run experiment:stage2b -- report --batch <initial-batch-id> --repeat-batch <
 npm run experiment:stage2b -- report --boundary-batch <boundary-batch-id>
 ```
 
-首轮门控通过后，才能准备两轮确认批次，并用 `--repeat-batch` 合并为每个单元格三次观测。报告路径为 `experiments/stage-2b/results/boundary-v1/`；公开内容不包含原始 filter、工具输出、模型回答、记录 ID、调用 ID、本机路径或凭据。
+只有首轮门控通过后，下面的命令才能准备两轮确认批次；执行器会重新读取首轮记录、校验门控和 Skill 哈希，并把首轮批次 ID 写入确认清单：
+
+```bash
+npm run experiment:stage2b -- prepare --suite boundary-v1 --repetitions 2 --initial-batch <initial-batch-id>
+```
+
+随后可用 `--repeat-batch` 合并为每个单元格三次观测。本轮门控未通过，所以该命令会拒绝创建确认批次。报告路径为 `experiments/stage-2b/results/boundary-v1/`；公开内容不包含原始 filter、工具输出、模型回答、记录 ID、调用 ID、本机路径或凭据。
 
 ## 项目结构
 
@@ -334,6 +354,6 @@ docs/learning-notes/             前期学习材料
 
 我已完成 Stage 2B 的 pilot、预算校准、固定配置重复观测，以及 `diagnostic-v1` 的三次完整观测。版本 4 报告把任务成功与过程行为分开：答案正确不代表工具选择合规，错误预防也不等同于错误后恢复。
 
-`boundary-v1` 的离线实现、哈希门控、18 项计划、记录兼容和脱敏报告已经完成。下一步是在功能分支验证和审阅通过后执行一轮真实批次：只有 `Boundary Skill v2` 达到 6/6 答案正确、3/3 纯文本负例零调用、3/3 JSON 正例成功调用，且负例合规优于 `Skill v1`，才追加两轮确认实验。
+`boundary-v1` 的离线实现和首轮 18 项真实实验已经完成。由于预注册门控未通过，我停止了重复采样；当前数据不支持“边界型 Skill 已稳定改善工具选择”的结论。
 
-这一阶段继续保持模型、温度、预算和执行器不变，只改变版本化 Skill 内容与任务表示。若首轮未通过，我会先分析私有轨迹并修正假设，不机械增加付费样本；多工具选择和随机温度实验继续后置。
+下一步应先修正实验问题，而不是继续改写 Skill 或增加重复数。新的探索需要把负例设计在更接近工具适用边界的位置，并把 JSON 正例的任务复杂度作为显式变量，避免“输入格式是否为 JSON”和“任务是否值得调用工具”被模型自行权衡后混在同一个合规指标中。多工具选择和随机温度实验仍然后置。

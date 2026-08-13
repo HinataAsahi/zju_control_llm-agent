@@ -1,0 +1,975 @@
+{
+  "version": 1,
+  "scope": "boundary-observations",
+  "suite": "boundary-v1",
+  "batchId": "stage2b-batch-20260813T141818451Z-e3e8da61",
+  "createdAt": "2026-08-13T14:18:18.451Z",
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "thinking": "none",
+  "sampling": {
+    "temperature": 0
+  },
+  "repetitions": 1,
+  "limits": {
+    "maxTurns": 6,
+    "maxToolCalls": 5,
+    "requestTimeoutMs": 60000,
+    "totalTimeoutMs": 120000
+  },
+  "skills": {
+    "v1": {
+      "version": "v1",
+      "sha256": "126f3ac2553008b712180f40d174836cd0c13d2be751e244a7b10bfe6cfbe117"
+    },
+    "v2": {
+      "version": "v2",
+      "sha256": "4295b13535a13f0437cc54d7d64887709d866a2648490cd4135f082aa18fb3a5"
+    }
+  },
+  "counts": {
+    "total": 18,
+    "completed": 18,
+    "failed": 0,
+    "taskSuccess": 18,
+    "toolCompliance": 14,
+    "limitExceeded": 0
+  },
+  "usage": {
+    "inputTokens": 28381,
+    "cachedInputTokens": 23424,
+    "outputTokens": 2684,
+    "reasoningOutputTokens": 0,
+    "totalTokens": 31065
+  },
+  "turns": 26,
+  "toolCalls": 8,
+  "initialGate": {
+    "passed": false,
+    "boundaryTaskSuccess": {
+      "passed": 6,
+      "total": 6
+    },
+    "boundaryNegativeCompliance": {
+      "passed": 3,
+      "total": 3
+    },
+    "boundaryPositiveCompliance": {
+      "passed": 2,
+      "total": 3
+    },
+    "skillV1NegativeCompliance": {
+      "passed": 3,
+      "total": 3
+    },
+    "descriptionNegativeCompliance": {
+      "passed": 3,
+      "total": 3
+    },
+    "reasons": [
+      "Boundary Skill v2 未达到 3/3 JSON 正例成功调用。",
+      "Boundary Skill v2 的负例工具合规未优于 Skill v1。"
+    ]
+  },
+  "conditions": [
+    {
+      "condition": "description",
+      "taskSuccess": {
+        "passed": 6,
+        "total": 6
+      },
+      "negativeCompliance": {
+        "passed": 3,
+        "total": 3
+      },
+      "positiveCompliance": {
+        "passed": 2,
+        "total": 3
+      },
+      "turns": 9,
+      "toolCalls": 3,
+      "totalTokens": 8109
+    },
+    {
+      "condition": "skill-v1",
+      "taskSuccess": {
+        "passed": 6,
+        "total": 6
+      },
+      "negativeCompliance": {
+        "passed": 3,
+        "total": 3
+      },
+      "positiveCompliance": {
+        "passed": 1,
+        "total": 3
+      },
+      "turns": 8,
+      "toolCalls": 2,
+      "totalTokens": 10457
+    },
+    {
+      "condition": "skill-v2",
+      "taskSuccess": {
+        "passed": 6,
+        "total": 6
+      },
+      "negativeCompliance": {
+        "passed": 3,
+        "total": 3
+      },
+      "positiveCompliance": {
+        "passed": 2,
+        "total": 3
+      },
+      "turns": 9,
+      "toolCalls": 3,
+      "totalTokens": 12499
+    }
+  ],
+  "runs": [
+    {
+      "taskId": "T12",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 620,
+        "cachedInputTokens": 512,
+        "outputTokens": 30,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 650
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T13",
+      "condition": "skill-v1",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 1067,
+        "cachedInputTokens": 896,
+        "outputTokens": 28,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1095
+      },
+      "toolCompliance": false,
+      "firstCallOutcome": "no-call",
+      "strategy": "unresolved",
+      "tracePath": []
+    },
+    {
+      "taskId": "T14",
+      "condition": "skill-v2",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 1136,
+        "cachedInputTokens": 0,
+        "outputTokens": 38,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1174
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T15",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 692,
+        "cachedInputTokens": 512,
+        "outputTokens": 40,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 732
+      },
+      "toolCompliance": false,
+      "firstCallOutcome": "no-call",
+      "strategy": "unresolved",
+      "tracePath": []
+    },
+    {
+      "taskId": "T16",
+      "condition": "skill-v1",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 1077,
+        "cachedInputTokens": 896,
+        "outputTokens": 56,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1133
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T17",
+      "condition": "skill-v2",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 3,
+      "toolCalls": 2,
+      "usage": {
+        "inputTokens": 4498,
+        "cachedInputTokens": 4096,
+        "outputTokens": 593,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 5091
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "JQ_RUNTIME_ERROR",
+      "strategy": "recovered-after-error",
+      "tracePath": [
+        "task-query:JQ_RUNTIME_ERROR",
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T12",
+      "condition": "skill-v1",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 1036,
+        "cachedInputTokens": 896,
+        "outputTokens": 31,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1067
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T13",
+      "condition": "skill-v2",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 2474,
+        "cachedInputTokens": 2304,
+        "outputTokens": 211,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 2685
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T14",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 655,
+        "cachedInputTokens": 512,
+        "outputTokens": 43,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 698
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T15",
+      "condition": "skill-v1",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 1108,
+        "cachedInputTokens": 896,
+        "outputTokens": 43,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1151
+      },
+      "toolCompliance": false,
+      "firstCallOutcome": "no-call",
+      "strategy": "unresolved",
+      "tracePath": []
+    },
+    {
+      "taskId": "T16",
+      "condition": "skill-v2",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 1142,
+        "cachedInputTokens": 1024,
+        "outputTokens": 54,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1196
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T17",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 3,
+      "toolCalls": 2,
+      "usage": {
+        "inputTokens": 3055,
+        "cachedInputTokens": 2432,
+        "outputTokens": 546,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 3601
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "JQ_RUNTIME_ERROR",
+      "strategy": "recovered-after-error",
+      "tracePath": [
+        "task-query:JQ_RUNTIME_ERROR",
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T12",
+      "condition": "skill-v2",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 1101,
+        "cachedInputTokens": 1024,
+        "outputTokens": 36,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1137
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T13",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 1512,
+        "cachedInputTokens": 1152,
+        "outputTokens": 201,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1713
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T14",
+      "condition": "skill-v1",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 1071,
+        "cachedInputTokens": 896,
+        "outputTokens": 43,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1114
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T15",
+      "condition": "skill-v2",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 1173,
+        "cachedInputTokens": 1024,
+        "outputTokens": 43,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1216
+      },
+      "toolCompliance": false,
+      "firstCallOutcome": "no-call",
+      "strategy": "unresolved",
+      "tracePath": []
+    },
+    {
+      "taskId": "T16",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 661,
+        "cachedInputTokens": 512,
+        "outputTokens": 54,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 715
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T17",
+      "condition": "skill-v1",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "turns": 3,
+      "toolCalls": 2,
+      "usage": {
+        "inputTokens": 4303,
+        "cachedInputTokens": 3840,
+        "outputTokens": 594,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 4897
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "JQ_RUNTIME_ERROR",
+      "strategy": "recovered-after-error",
+      "tracePath": [
+        "task-query:JQ_RUNTIME_ERROR",
+        "task-query:ok"
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "taskId": "T12",
+      "condition": "description",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "avoided-tool": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 650,
+        "max": 650,
+        "mean": 650,
+        "sum": 650
+      }
+    },
+    {
+      "taskId": "T13",
+      "condition": "skill-v1",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 0,
+      "strategies": {
+        "unresolved": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 1095,
+        "max": 1095,
+        "mean": 1095,
+        "sum": 1095
+      }
+    },
+    {
+      "taskId": "T14",
+      "condition": "skill-v2",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "avoided-tool": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 1174,
+        "max": 1174,
+        "mean": 1174,
+        "sum": 1174
+      }
+    },
+    {
+      "taskId": "T15",
+      "condition": "description",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 0,
+      "strategies": {
+        "unresolved": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 732,
+        "max": 732,
+        "mean": 732,
+        "sum": 732
+      }
+    },
+    {
+      "taskId": "T16",
+      "condition": "skill-v1",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "avoided-tool": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 1133,
+        "max": 1133,
+        "mean": 1133,
+        "sum": 1133
+      }
+    },
+    {
+      "taskId": "T17",
+      "condition": "skill-v2",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "recovered-after-error": 1
+      },
+      "turns": {
+        "min": 3,
+        "max": 3,
+        "mean": 3
+      },
+      "toolCalls": {
+        "min": 2,
+        "max": 2,
+        "mean": 2
+      },
+      "totalTokens": {
+        "min": 5091,
+        "max": 5091,
+        "mean": 5091,
+        "sum": 5091
+      }
+    },
+    {
+      "taskId": "T12",
+      "condition": "skill-v1",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "avoided-tool": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 1067,
+        "max": 1067,
+        "mean": 1067,
+        "sum": 1067
+      }
+    },
+    {
+      "taskId": "T13",
+      "condition": "skill-v2",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "one-shot-query": 1
+      },
+      "turns": {
+        "min": 2,
+        "max": 2,
+        "mean": 2
+      },
+      "toolCalls": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "totalTokens": {
+        "min": 2685,
+        "max": 2685,
+        "mean": 2685,
+        "sum": 2685
+      }
+    },
+    {
+      "taskId": "T14",
+      "condition": "description",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "avoided-tool": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 698,
+        "max": 698,
+        "mean": 698,
+        "sum": 698
+      }
+    },
+    {
+      "taskId": "T15",
+      "condition": "skill-v1",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 0,
+      "strategies": {
+        "unresolved": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 1151,
+        "max": 1151,
+        "mean": 1151,
+        "sum": 1151
+      }
+    },
+    {
+      "taskId": "T16",
+      "condition": "skill-v2",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "avoided-tool": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 1196,
+        "max": 1196,
+        "mean": 1196,
+        "sum": 1196
+      }
+    },
+    {
+      "taskId": "T17",
+      "condition": "description",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "recovered-after-error": 1
+      },
+      "turns": {
+        "min": 3,
+        "max": 3,
+        "mean": 3
+      },
+      "toolCalls": {
+        "min": 2,
+        "max": 2,
+        "mean": 2
+      },
+      "totalTokens": {
+        "min": 3601,
+        "max": 3601,
+        "mean": 3601,
+        "sum": 3601
+      }
+    },
+    {
+      "taskId": "T12",
+      "condition": "skill-v2",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "avoided-tool": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 1137,
+        "max": 1137,
+        "mean": 1137,
+        "sum": 1137
+      }
+    },
+    {
+      "taskId": "T13",
+      "condition": "description",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "one-shot-query": 1
+      },
+      "turns": {
+        "min": 2,
+        "max": 2,
+        "mean": 2
+      },
+      "toolCalls": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "totalTokens": {
+        "min": 1713,
+        "max": 1713,
+        "mean": 1713,
+        "sum": 1713
+      }
+    },
+    {
+      "taskId": "T14",
+      "condition": "skill-v1",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "avoided-tool": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 1114,
+        "max": 1114,
+        "mean": 1114,
+        "sum": 1114
+      }
+    },
+    {
+      "taskId": "T15",
+      "condition": "skill-v2",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 0,
+      "strategies": {
+        "unresolved": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 1216,
+        "max": 1216,
+        "mean": 1216,
+        "sum": 1216
+      }
+    },
+    {
+      "taskId": "T16",
+      "condition": "description",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "avoided-tool": 1
+      },
+      "turns": {
+        "min": 1,
+        "max": 1,
+        "mean": 1
+      },
+      "toolCalls": {
+        "min": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "totalTokens": {
+        "min": 715,
+        "max": 715,
+        "mean": 715,
+        "sum": 715
+      }
+    },
+    {
+      "taskId": "T17",
+      "condition": "skill-v1",
+      "observations": 1,
+      "taskSuccess": 1,
+      "toolCompliance": 1,
+      "strategies": {
+        "recovered-after-error": 1
+      },
+      "turns": {
+        "min": 3,
+        "max": 3,
+        "mean": 3
+      },
+      "toolCalls": {
+        "min": 2,
+        "max": 2,
+        "mean": 2
+      },
+      "totalTokens": {
+        "min": 4897,
+        "max": 4897,
+        "mean": 4897,
+        "sum": 4897
+      }
+    }
+  ]
+}
