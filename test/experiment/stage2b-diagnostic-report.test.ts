@@ -18,7 +18,10 @@ import {
   summarizeStage2bDiagnosticBatch,
   writeStage2bDiagnosticReport
 } from '../../src/experiment/stage2b-diagnostic-report.js';
-import type { Stage2bReportRecord } from '../../src/experiment/stage2b-report.js';
+import {
+  readStage2bReportRecord,
+  type Stage2bReportRecord
+} from '../../src/experiment/stage2b-report.js';
 import type { Stage2bToolEvent } from '../../src/experiment/stage2b-record.js';
 import { main, parseStage2bArgs } from '../../src/experiment/stage2b.js';
 
@@ -91,6 +94,36 @@ test('rejects non-diagnostic, duplicate, missing, and mismatched report inputs',
     manifest: manifestWithFalseRecovery,
     records: recordsWithFalseRecovery
   }), /derived recovery|recovery.*events/i);
+
+  const failedManifestRun = {
+    ...fixture.manifest,
+    runs: fixture.manifest.runs.map((run, index) => index === 0
+      ? { ...run, status: 'failed' as const }
+      : run)
+  } as Stage2bBatchManifest;
+  assert.throws(() => summarizeStage2bDiagnosticBatch({
+    manifest: failedManifestRun,
+    records: fixture.records
+  }), /terminal status|status.*record/i);
+
+  const infrastructureRecords = fixture.records.map((record, index) => index === 0
+    ? { ...record, status: 'infrastructure-error' as const, taskSuccess: null }
+    : record);
+  const completedManifestRun = {
+    ...fixture.manifest,
+    runs: fixture.manifest.runs.map((run, index) => index === 0
+      ? {
+          ...run,
+          status: 'completed' as const,
+          recordStatus: 'infrastructure-error' as const,
+          taskSuccess: null
+        }
+      : run)
+  } as Stage2bBatchManifest;
+  assert.throws(() => summarizeStage2bDiagnosticBatch({
+    manifest: completedManifestRun,
+    records: infrastructureRecords
+  }), /terminal status|status.*record/i);
 });
 
 test('writes private-input diagnostic reports atomically to the separate public directory', async t => {
@@ -128,6 +161,24 @@ test('refuses to write a diagnostic report through a symlinked results directory
     batchId: fixture.manifest.batchId
   }), /unsafe.*results|symbolic/i);
   assert.deepEqual(await readdir(outside), []);
+});
+
+test('rejects truncated or wrongly versioned private records', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-record-reader-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  const fixture = diagnosticFixture();
+  await persistDiagnosticFixture(repositoryRoot, fixture);
+  const record = fixture.records[0]!;
+  const recordPath = join(repositoryRoot, '.experiment-runs/stage-2b', record.runId, 'record.json');
+  const persisted = JSON.parse(await readFile(recordPath, 'utf8')) as Record<string, unknown>;
+
+  const missingStartedAt = { ...persisted };
+  delete missingStartedAt.startedAt;
+  await writeFile(recordPath, `${JSON.stringify(missingStartedAt, null, 2)}\n`);
+  await assert.rejects(readStage2bReportRecord(repositoryRoot, record.runId));
+
+  await writeFile(recordPath, `${JSON.stringify({ ...persisted, version: 2 }, null, 2)}\n`);
+  await assert.rejects(readStage2bReportRecord(repositoryRoot, record.runId));
 });
 
 test('routes the mutually exclusive diagnostic report CLI without credentials or tools', async t => {
@@ -270,11 +321,14 @@ async function persistDiagnosticFixture(
     await mkdir(recordRoot, { recursive: true, mode: 0o700 });
     const privateRecord = {
       ...record,
+      version: 1,
+      startedAt: '2026-08-13T00:01:00.000Z',
       finalAnswer: {
         status: 'completed',
         answer: 'private-output',
         explanation: 'final explanation private-output'
-      }
+      },
+      durationMs: 100
     };
     await writeFile(join(recordRoot, 'record.json'), `${JSON.stringify(privateRecord, null, 2)}\n`, {
       mode: 0o600

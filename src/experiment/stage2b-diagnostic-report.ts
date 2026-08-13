@@ -243,6 +243,10 @@ function diagnosticRun(
   }
   const record = records.get(run.recordRunId);
   if (!record) throw new Error(`Stage 2B diagnostic record is missing for ${run.runKey}.`);
+  const expectedTerminalStatus = record.status === 'completed' ? 'completed' : 'failed';
+  if (run.status !== expectedTerminalStatus) {
+    throw new Error(`Stage 2B diagnostic terminal status does not match its record for ${run.runKey}.`);
+  }
   if (record.taskId !== run.taskId || record.condition !== run.condition) {
     throw new Error(`Stage 2B diagnostic record identity mismatch for ${run.runKey}.`);
   }

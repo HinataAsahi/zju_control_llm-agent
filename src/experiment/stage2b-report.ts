@@ -9,7 +9,11 @@ import type {
   Stage2bBatchRun
 } from './stage2b-batch.js';
 import { readStage2bBatchManifest } from './stage2b-batch.js';
-import type { Stage2bRecord } from './stage2b-record.js';
+import {
+  isStage2bRunId,
+  type Stage2bRecord
+} from './stage2b-record.js';
+import { experimentAnswerSchema } from './schema.js';
 import { STAGE2B_TASK_IDS } from './stage2b-suite.js';
 
 export type Stage2bReportRole = 'pilot' | 'calibrated' | 'repeat';
@@ -156,6 +160,47 @@ const toolEventSchema = z.discriminatedUnion('type', [
     output: z.string()
   })
 ]);
+
+const runErrorSchema = z.strictObject({
+  category: z.enum(['api', 'mcp', 'model', 'limit', 'configuration']),
+  code: z.string(),
+  httpStatus: z.number().int().optional(),
+  requestId: z.string().optional(),
+  providerCode: z.string().optional(),
+  providerParam: z.string().optional(),
+  diagnostics: z.record(z.string(), z.unknown()).optional()
+});
+
+const stage2bPrivateRecordSchema = z.strictObject({
+  version: z.literal(1),
+  runId: z.string().refine(isStage2bRunId),
+  startedAt: z.string().datetime({ offset: false }),
+  provider: z.literal('deepseek'),
+  model: z.literal('deepseek-v4-flash'),
+  thinking: z.literal('none'),
+  sampling: z.strictObject({
+    temperature: z.number().min(0).max(2).nullable()
+  }).default({ temperature: null }),
+  taskId: z.enum(STAGE2B_TASK_IDS),
+  condition: z.enum(['explicit', 'description', 'skill']),
+  status: z.enum([
+    'completed',
+    'infrastructure-error',
+    'protocol-error',
+    'model-output-error',
+    'limit-exceeded'
+  ]),
+  taskSuccess: z.boolean().nullable(),
+  recoverySuccess: z.boolean().nullable(),
+  limits: limitsSchema,
+  turns: z.number().int().nonnegative(),
+  toolCalls: z.number().int().nonnegative(),
+  toolEvents: z.array(toolEventSchema),
+  finalAnswer: experimentAnswerSchema.optional(),
+  usage: usageSchema,
+  durationMs: z.number().nonnegative(),
+  error: runErrorSchema.optional()
+});
 
 const publicJqErrorCodes = new Set([
   'PATH_NOT_ALLOWED',
@@ -639,9 +684,30 @@ export async function readStage2bReportRecord(
   }
   const text = await readRegularText(join(recordRoot, 'record.json'));
   const parsed: unknown = JSON.parse(text);
-  const record = reportRecordSchema.parse(parsed);
+  const privateRecord = stage2bPrivateRecordSchema.parse(parsed) as Stage2bRecord;
+  const record = reportRecordSchema.parse(projectReportRecord(privateRecord));
   if (record.runId !== runId) throw new Error('Stage 2B record ID does not match its path.');
   return record;
+}
+
+function projectReportRecord(record: Stage2bRecord): Stage2bReportRecord {
+  return {
+    runId: record.runId,
+    provider: record.provider,
+    model: record.model,
+    thinking: record.thinking,
+    sampling: { ...record.sampling },
+    taskId: record.taskId,
+    condition: record.condition,
+    status: record.status,
+    taskSuccess: record.taskSuccess,
+    recoverySuccess: record.recoverySuccess,
+    limits: { ...record.limits },
+    turns: record.turns,
+    toolCalls: record.toolCalls,
+    toolEvents: [...record.toolEvents],
+    usage: { ...record.usage }
+  };
 }
 
 async function readRegularText(path: string): Promise<string> {
