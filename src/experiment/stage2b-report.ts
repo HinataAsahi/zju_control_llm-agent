@@ -10,6 +10,7 @@ import type {
 } from './stage2b-batch.js';
 import { readStage2bBatchManifest } from './stage2b-batch.js';
 import type { Stage2bRecord } from './stage2b-record.js';
+import { STAGE2B_TASK_IDS } from './stage2b-suite.js';
 
 export type Stage2bReportRole = 'pilot' | 'calibrated' | 'repeat';
 
@@ -175,7 +176,7 @@ const reportRecordSchema: z.ZodType<Stage2bReportRecord> = z.object({
   sampling: z.strictObject({
     temperature: z.number().min(0).max(2).nullable()
   }).default({ temperature: null }),
-  taskId: z.enum(['T1', 'T2', 'T6', 'T7']),
+  taskId: z.enum(STAGE2B_TASK_IDS),
   condition: z.enum(['explicit', 'description', 'skill']),
   status: z.enum([
     'completed',
@@ -619,12 +620,12 @@ async function loadBatch(
     if (run.status === 'pending' || run.status === 'running') {
       throw new Error(`Stage 2B ${role} batch is not terminal.`);
     }
-    records.push(await readReportRecord(repositoryRoot, run.recordRunId));
+    records.push(await readStage2bReportRecord(repositoryRoot, run.recordRunId));
   }
   return { role, manifest, records };
 }
 
-async function readReportRecord(
+export async function readStage2bReportRecord(
   repositoryRoot: string,
   runId: string
 ): Promise<Stage2bReportRecord> {

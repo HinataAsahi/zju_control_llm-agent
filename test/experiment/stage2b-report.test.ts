@@ -297,6 +297,7 @@ test('runs the offline report command without reading an API key', async t => {
 
   assert.deepEqual(parseStage2bArgs(argv), {
     mode: 'report',
+    kind: 'baseline',
     pilotBatchId: pilot.manifest.batchId,
     calibratedBatchId: calibrated.manifest.batchId,
     repeatBatchId: repeat.manifest.batchId

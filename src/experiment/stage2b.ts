@@ -40,6 +40,7 @@ import {
   reconcileStage2bBatch,
   recordStage2bBatchRun
 } from './stage2b-batch.js';
+import { writeStage2bDiagnosticReport } from './stage2b-diagnostic-report.js';
 import { evaluateStage2bRecovery } from './stage2b-evaluation.js';
 import {
   createStage2bPlan,
@@ -78,9 +79,14 @@ export type Stage2bCommand = {
   batchId: string;
 } | {
   mode: 'report';
+  kind: 'baseline';
   pilotBatchId: string;
   calibratedBatchId: string;
   repeatBatchId?: string;
+} | {
+  mode: 'report';
+  kind: 'diagnostic';
+  batchId: string;
 };
 
 export type { Stage2bTaskId } from './stage2b-record.js';
@@ -114,6 +120,7 @@ const stage2bHelp = [
   `plan [--suite baseline-v1|diagnostic-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
   `prepare [--suite baseline-v1|diagnostic-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
   'run-next --batch <batch-id>;',
+  'report --batch <batch-id>; or',
   'report --pilot-batch <batch-id> --calibrated-batch <batch-id> [--repeat-batch <batch-id>]'
 ].join(' ');
 
@@ -350,6 +357,21 @@ export async function main(
   }
   const repositoryRoot = options.repositoryRoot ?? process.cwd();
   if (command.mode === 'report') {
+    if (command.kind === 'diagnostic') {
+      const result = await writeStage2bDiagnosticReport({
+        repositoryRoot,
+        batchId: command.batchId
+      });
+      const output = `${JSON.stringify({
+        status: 'reported',
+        kind: 'diagnostic',
+        batchId: command.batchId,
+        jsonPath: result.jsonPath,
+        markdownPath: result.markdownPath
+      }, null, 2)}\n`;
+      (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
+      return 0;
+    }
     const result = await writeStage2bComparisonReport({
       repositoryRoot,
       pilotBatchId: command.pilotBatchId,
@@ -491,6 +513,15 @@ export async function main(
 }
 
 function parseReportArgs(argv: string[]): Extract<Stage2bCommand, { mode: 'report' }> {
+  const diagnosticBatchId = argv[1];
+  if (
+    argv.length === 2
+    && argv[0] === '--batch'
+    && diagnosticBatchId
+    && isStage2bBatchId(diagnosticBatchId)
+  ) {
+    return { mode: 'report', kind: 'diagnostic', batchId: diagnosticBatchId };
+  }
   let pilotBatchId: string | undefined;
   let calibratedBatchId: string | undefined;
   let repeatBatchId: string | undefined;
@@ -525,6 +556,7 @@ function parseReportArgs(argv: string[]): Extract<Stage2bCommand, { mode: 'repor
   }
   return {
     mode: 'report',
+    kind: 'baseline',
     pilotBatchId,
     calibratedBatchId,
     ...(repeatBatchId ? { repeatBatchId } : {})
