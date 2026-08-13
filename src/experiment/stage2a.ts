@@ -353,6 +353,12 @@ async function executeObservation(options: {
     task: options.task,
     condition: options.condition,
     experimentRoot: options.experimentRoot,
+    ...(options.condition === 'skill' ? {
+      skillAsset: {
+        root: options.experimentRoot,
+        relativePath: 'reference-skill/SKILL.md'
+      }
+    } : {}),
     runRoot: options.runRoot,
     runId
   });

@@ -93,7 +93,14 @@ test('isolates the reference skill to the skill condition', async t => {
 
   const explicit = await prepareWorkspace({ task, condition: 'explicit', experimentRoot, runRoot, runId: 'explicit' });
   const description = await prepareWorkspace({ task, condition: 'description', experimentRoot, runRoot, runId: 'description' });
-  const skill = await prepareWorkspace({ task, condition: 'skill', experimentRoot, runRoot, runId: 'skill' });
+  const skill = await prepareWorkspace({
+    task,
+    condition: 'skill',
+    experimentRoot,
+    runRoot,
+    runId: 'skill',
+    skillAsset: { root: experimentRoot, relativePath: 'reference-skill/SKILL.md' }
+  });
 
   assert.equal(description.prompt, skill.prompt);
   assert.doesNotMatch(description.prompt, /skill|tool/i);
@@ -101,6 +108,45 @@ test('isolates the reference skill to the skill condition', async t => {
   assert.equal(await readFile(join(skill.path, '.agents/skills/jq-query/SKILL.md'), 'utf8'), await readFile(join(experimentRoot, 'reference-skill/SKILL.md'), 'utf8'));
   await assert.rejects(stat(join(explicit.path, '.agents')));
   await assert.rejects(stat(join(description.path, '.agents')));
+});
+
+test('does not infer a skill asset from the condition name', async t => {
+  const runRoot = await setup(t);
+  const task = (await loadTasks(experimentRoot)).find(candidate => candidate.id === 'T2');
+  assert.ok(task);
+
+  const prepared = await prepareWorkspace({
+    task,
+    condition: 'skill',
+    experimentRoot,
+    runRoot,
+    runId: 'skill-without-asset'
+  });
+
+  await assert.rejects(stat(join(prepared.path, '.agents')));
+});
+
+test('copies an explicitly selected skill asset independently of the prompt condition', async t => {
+  const runRoot = await setup(t);
+  const task = (await loadTasks(experimentRoot)).find(candidate => candidate.id === 'T2');
+  assert.ok(task);
+
+  const prepared = await prepareWorkspace({
+    task,
+    condition: 'description',
+    experimentRoot,
+    runRoot,
+    runId: 'explicit-skill-asset',
+    skillAsset: {
+      root: experimentRoot,
+      relativePath: 'reference-skill/SKILL.md'
+    }
+  });
+
+  assert.equal(
+    await readFile(join(prepared.path, '.agents/skills/jq-query/SKILL.md'), 'utf8'),
+    await readFile(join(experimentRoot, 'reference-skill/SKILL.md'), 'utf8')
+  );
 });
 
 test('adds the applicable explicit prompt for T1-T7 and the negative prompt for T8', async t => {
@@ -164,7 +210,8 @@ test('prepares workspaces from a separate Stage 2B task root', async t => {
     experimentRoot,
     taskRoot,
     runRoot,
-    runId: 'stage2b-T11-fixture'
+    runId: 'stage2b-T11-fixture',
+    skillAsset: { root: experimentRoot, relativePath: 'reference-skill/SKILL.md' }
   });
   assert.equal(
     await readFile(join(t11.path, 'metrics.json'), 'utf8'),
@@ -240,7 +287,12 @@ test('rejects symlinked source assets instead of dereferencing them', async t =>
     { name: 'fixture', path: 'tasks/fixtures/users.json', condition: 'description' as const },
     { name: 'prompt', path: 'prompts/common.txt', condition: 'description' as const },
     { name: 'schema', path: 'schemas/final-answer.schema.json', condition: 'description' as const },
-    { name: 'skill', path: 'reference-skill/SKILL.md', condition: 'skill' as const }
+    {
+      name: 'skill',
+      path: 'reference-skill/SKILL.md',
+      condition: 'skill' as const,
+      skillAsset: { relativePath: 'reference-skill/SKILL.md' }
+    }
   ];
 
   for (const testCase of cases) {
@@ -257,6 +309,9 @@ test('rejects symlinked source assets instead of dereferencing them', async t =>
           task: directTask,
           condition: testCase.condition,
           experimentRoot: mutableExperimentRoot,
+          ...(testCase.skillAsset
+            ? { skillAsset: { root: mutableExperimentRoot, ...testCase.skillAsset } }
+            : {}),
           runRoot,
           runId: `symlink-${testCase.name}`
         })

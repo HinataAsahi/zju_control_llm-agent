@@ -214,6 +214,12 @@ export async function runStage2bSmoke(options: {
       condition,
       experimentRoot,
       taskRoot,
+      ...(condition === 'skill' ? {
+        skillAsset: {
+          root: experimentRoot,
+          relativePath: 'reference-skill/SKILL.md'
+        }
+      } : {}),
       runRoot,
       runId
     });

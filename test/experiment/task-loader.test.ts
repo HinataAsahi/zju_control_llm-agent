@@ -83,6 +83,23 @@ test('provides a valid generic jq-query skill without experiment task IDs', asyn
   assert.doesNotMatch(skill, /\bT[1-8]\b/);
 });
 
+test('freezes Stage 2B skill v1 and defines a compact boundary-gated v2', async () => {
+  const current = await readFile(resolve('experiments/stage-2a/reference-skill/SKILL.md'), 'utf8');
+  const v1 = await readFile(resolve('experiments/stage-2b/skills/jq-query-v1/SKILL.md'), 'utf8');
+  const v2 = await readFile(resolve('experiments/stage-2b/skills/jq-query-v2/SKILL.md'), 'utf8');
+
+  assert.equal(v1, current);
+  assert.match(v2, /Source gate/);
+  assert.match(v2, /Task gate/);
+  assert.match(v2, /Availability gate/);
+  assert.match(v2, /all three gates pass/i);
+  assert.match(v2, /Do not convert.*non-JSON.*JSON/i);
+  assert.match(v2, /known.*one target query/i);
+  assert.match(v2, /unknown.*inspect/i);
+  assert.match(v2, /Do not repeat.*failed call/i);
+  assert.doesNotMatch(v2, /\bT(?:9|1[0-7])\b/);
+});
+
 test('uses explicit structured-output types for every supported answer shape', async () => {
   const schema = JSON.parse(
     await readFile(resolve('experiments/stage-2a/schemas/final-answer.schema.json'), 'utf8')

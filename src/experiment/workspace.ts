@@ -14,6 +14,10 @@ export interface PrepareWorkspaceOptions {
   condition: ExperimentCondition;
   experimentRoot: string;
   taskRoot?: string;
+  skillAsset?: {
+    root: string;
+    relativePath: string;
+  };
   runRoot: string;
   runId: string;
 }
@@ -60,10 +64,12 @@ async function prepareReservedWorkspace(
       await copyRegularFile(taskRoot, sourcePath, destinationPath);
     }
 
-    if (options.condition === 'skill') {
+    if (options.skillAsset) {
+      validateRelativeAssetPath(options.skillAsset.relativePath);
+      const skillRoot = resolve(options.skillAsset.root);
       await copyRegularFile(
-        experimentRoot,
-        join(experimentRoot, 'reference-skill', 'SKILL.md'),
+        skillRoot,
+        join(skillRoot, ...options.skillAsset.relativePath.split('/')),
         join(temporaryPath, '.agents', 'skills', 'jq-query', 'SKILL.md')
       );
     }
@@ -234,6 +240,19 @@ function validateFixturePath(inputFile: string): void {
     inputFile.slice(fixturePrefix.length).length === 0
   ) {
     throw new Error(`unsafe fixture path: ${inputFile}`);
+  }
+}
+
+function validateRelativeAssetPath(path: string): void {
+  if (
+    isAbsolute(path) ||
+    path.includes('\\') ||
+    posix.normalize(path) !== path ||
+    path.length === 0 ||
+    path === '..' ||
+    path.startsWith('../')
+  ) {
+    throw new Error(`unsafe relative asset path: ${path}`);
   }
 }
 
