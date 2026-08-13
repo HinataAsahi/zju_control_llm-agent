@@ -81,6 +81,7 @@ export type Stage2bCommand = {
   mode: 'prepare';
   suite: Stage2bSuiteId;
   repetitions: number;
+  initialBatchId?: string;
 } | {
   mode: 'run-next';
   batchId: string;
@@ -133,7 +134,7 @@ const stage2bHelp = [
   'Stage 2B supports:',
   'smoke [--task T1|T2|T6|T7|T9|T10|T11|T12|T13|T14|T15|T16|T17] [--condition explicit|description|skill|skill-v1|skill-v2];',
   `plan [--suite baseline-v1|diagnostic-v1|boundary-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
-  `prepare [--suite baseline-v1|diagnostic-v1|boundary-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
+  `prepare [--suite baseline-v1|diagnostic-v1|boundary-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}] [--initial-batch <batch-id>];`,
   'run-next --batch <batch-id>;',
   'report --boundary-batch <batch-id> [--repeat-batch <batch-id>];',
   'report --batch <batch-id> [--repeat-batch <batch-id>]; or',
@@ -181,9 +182,13 @@ export function stage2bExitCode(
 }
 
 export function stage2bFailureMessage(argv: string[]): string {
-  return argv[0] === 'report'
-    ? 'Stage 2B report failed. Verify the local batch records and configuration.\n'
-    : 'Stage 2B smoke failed. Inspect the local record when available.\n';
+  if (argv[0] === 'report') {
+    return 'Stage 2B report failed. Verify the local batch records and configuration.\n';
+  }
+  if (argv[0] === 'prepare') {
+    return 'Stage 2B batch preparation failed. Verify the requested suite and gate inputs.\n';
+  }
+  return 'Stage 2B smoke failed. Inspect the local record when available.\n';
 }
 
 export async function runStage2bSmoke(options: {
@@ -250,6 +255,7 @@ export async function runStage2bSmoke(options: {
       runRoot,
       runId
     });
+    let verifiedSkillContents: string | undefined;
     if (versionedSkill) {
       const installedContents = await readFile(
         join(workspace.path, '.agents', 'skills', 'jq-query', 'SKILL.md'),
@@ -263,10 +269,14 @@ export async function runStage2bSmoke(options: {
         throw new Error('Stage 2B skill asset changed while preparing the workspace.');
       }
       selectedSkillIdentity = installedIdentity;
+      verifiedSkillContents = installedContents;
     }
     const outputSchemaValue: unknown = JSON.parse(await readFile(workspace.outputSchemaPath, 'utf8'));
     if (!isRecord(outputSchemaValue)) throw new Error('Final answer schema must be a JSON object.');
-    const instructions = await instructionsForCondition(workspace, condition);
+    const skillContents = condition === 'skill'
+      ? await readFile(join(workspace.path, '.agents', 'skills', 'jq-query', 'SKILL.md'), 'utf8')
+      : verifiedSkillContents;
+    const instructions = buildStage2bInstructions(condition, skillContents);
     setup = {
       task,
       workspace,
@@ -480,7 +490,8 @@ export async function main(
       repositoryRoot,
       suite: command.suite,
       repetitions: command.repetitions,
-      createdAt: dependencies.now()
+      createdAt: dependencies.now(),
+      ...(command.initialBatchId ? { initialBatchId: command.initialBatchId } : {})
     });
     const output = `${JSON.stringify({
       batchId: prepared.manifest.batchId,
@@ -713,6 +724,7 @@ function parseRepetitionArgs(
   let suite: Stage2bSuiteId = 'baseline-v1';
   let hasRepetitions = false;
   let hasSuite = false;
+  let initialBatchId: string | undefined;
   if (argv.length % 2 !== 0) throw new Error(`Invalid ${mode} arguments. ${stage2bHelp}`);
 
   for (let index = 0; index < argv.length; index += 2) {
@@ -735,11 +747,33 @@ function parseRepetitionArgs(
       hasSuite = true;
       continue;
     }
+    if (flag === '--initial-batch') {
+      if (mode !== 'prepare' || initialBatchId !== undefined || !value || !isStage2bBatchId(value)) {
+        throw new Error(`Invalid ${mode} arguments. ${stage2bHelp}`);
+      }
+      initialBatchId = value;
+      continue;
+    }
     throw new Error(`Invalid ${mode} arguments. ${stage2bHelp}`);
+  }
+  if (mode === 'prepare') {
+    const boundaryConfirmation = suite === 'boundary-v1' && repetitions === 2;
+    if (
+      (boundaryConfirmation && initialBatchId === undefined)
+      || (!boundaryConfirmation && initialBatchId !== undefined)
+      || (suite === 'boundary-v1' && repetitions !== 1 && repetitions !== 2)
+    ) {
+      throw new Error(`Invalid ${mode} arguments. ${stage2bHelp}`);
+    }
   }
   return mode === 'plan'
     ? { mode, suite, repetitions }
-    : { mode, suite, repetitions };
+    : {
+      mode,
+      suite,
+      repetitions,
+      ...(initialBatchId === undefined ? {} : { initialBatchId })
+    };
 }
 
 function parseRunNextArgs(argv: string[]): Stage2bCommand {
@@ -750,22 +784,19 @@ function parseRunNextArgs(argv: string[]): Stage2bCommand {
   return { mode: 'run-next', batchId };
 }
 
-async function instructionsForCondition(
-  workspace: PreparedWorkspace,
-  condition: Stage2bTreatment
-): Promise<string> {
+export function buildStage2bInstructions(
+  condition: Stage2bTreatment,
+  skillContents?: string
+): string {
   if (condition !== 'skill' && condition !== 'skill-v1' && condition !== 'skill-v2') {
     return STAGE2B_INSTRUCTIONS;
   }
-  const skill = await readFile(
-    join(workspace.path, '.agents', 'skills', 'jq-query', 'SKILL.md'),
-    'utf8'
-  );
+  if (skillContents === undefined) throw new Error('Skill contents are required.');
   return [
     STAGE2B_INSTRUCTIONS,
     '',
     'Reference skill: jq-query',
-    skill.trim()
+    skillContents.trim()
   ].join('\n');
 }
 

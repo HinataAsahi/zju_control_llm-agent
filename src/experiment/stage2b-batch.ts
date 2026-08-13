@@ -114,6 +114,7 @@ const skillIdentitySchema = z.strictObject({
 const stage2bBatchManifestV3Schema = z.strictObject({
   version: z.literal(3),
   suite: z.literal('boundary-v1'),
+  initialBatchId: batchIdSchema.optional(),
   skills: z.strictObject({
     v1: skillIdentitySchema.extend({ version: z.literal('v1') }),
     v2: skillIdentitySchema.extend({ version: z.literal('v2') })
@@ -127,6 +128,29 @@ const stage2bBatchManifestSchema = z.discriminatedUnion('version', [
   stage2bBatchManifestV2Schema,
   stage2bBatchManifestV3Schema
 ]).superRefine((manifest, context) => {
+  if (manifest.version === 3) {
+    if (manifest.repetitions === 1 && manifest.initialBatchId !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['initialBatchId'],
+        message: 'An initial boundary batch cannot reference another initial batch.'
+      });
+    }
+    if (manifest.repetitions === 2 && manifest.initialBatchId === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['initialBatchId'],
+        message: 'Boundary confirmation repetitions require a passed initial batch.'
+      });
+    }
+    if (manifest.repetitions !== 1 && manifest.repetitions !== 2) {
+      context.addIssue({
+        code: 'custom',
+        path: ['repetitions'],
+        message: 'Boundary batches support one initial or two confirmation repetitions.'
+      });
+    }
+  }
   const expected = expandStage2bSuite(
     stage2bManifestSuite(manifest),
     manifest.repetitions
@@ -165,7 +189,22 @@ export async function prepareStage2bBatch(options: {
   suite: Stage2bSuiteId;
   repetitions: number;
   createdAt: Date;
+  initialBatchId?: string;
 }): Promise<{ manifest: Stage2bBatchManifest; manifestPath: string }> {
+  if (options.suite !== 'boundary-v1' && options.initialBatchId !== undefined) {
+    throw new Error('Only boundary confirmation batches accept an initial batch.');
+  }
+  if (options.suite === 'boundary-v1') {
+    if (options.repetitions === 1 && options.initialBatchId !== undefined) {
+      throw new Error('An initial boundary batch cannot reference another initial batch.');
+    }
+    if (options.repetitions === 2 && options.initialBatchId === undefined) {
+      throw new Error('Boundary confirmation repetitions require a passed initial batch.');
+    }
+    if (options.repetitions !== 1 && options.repetitions !== 2) {
+      throw new Error('Boundary batches support one initial or two confirmation repetitions.');
+    }
+  }
   const plan = createStage2bPlan(options.repetitions, options.suite);
   const batchId = createBatchId(options.createdAt);
   const shared = {
@@ -186,14 +225,32 @@ export async function prepareStage2bBatch(options: {
   };
   let rawManifest: unknown;
   if (options.suite === 'boundary-v1') {
+    const initialReport = options.initialBatchId === undefined
+      ? undefined
+      : await import('./stage2b-boundary-report.js').then(module => (
+        module.requirePassedStage2bBoundaryInitialBatch(
+          options.repositoryRoot,
+          options.initialBatchId!
+        )
+      ));
     const [v1, v2] = await Promise.all([
       loadStage2bSkillAsset(options.repositoryRoot, 'skill-v1'),
       loadStage2bSkillAsset(options.repositoryRoot, 'skill-v2')
     ]);
     if (!v1 || !v2) throw new Error('Stage 2B boundary skill assets are unavailable.');
+    if (
+      initialReport !== undefined
+      && (
+        initialReport.skills.v1.sha256 !== v1.identity.sha256
+        || initialReport.skills.v2.sha256 !== v2.identity.sha256
+      )
+    ) {
+      throw new Error('Boundary confirmation skill assets differ from the passed initial batch.');
+    }
     rawManifest = {
       version: 3,
       suite: 'boundary-v1',
+      ...(options.initialBatchId === undefined ? {} : { initialBatchId: options.initialBatchId }),
       skills: { v1: v1.identity, v2: v2.identity },
       ...shared
     };

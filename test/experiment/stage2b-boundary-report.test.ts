@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
-import type { Stage2bBatchManifest } from '../../src/experiment/stage2b-batch.js';
+import {
+  prepareStage2bBatch,
+  type Stage2bBatchManifest
+} from '../../src/experiment/stage2b-batch.js';
 import {
   renderStage2bBoundaryMarkdown,
   summarizeStage2bBoundaryBatch,
@@ -12,6 +15,7 @@ import {
 } from '../../src/experiment/stage2b-boundary-report.js';
 import type { Stage2bRecord, Stage2bToolEvent } from '../../src/experiment/stage2b-record.js';
 import { expandStage2bSuite } from '../../src/experiment/stage2b-suite.js';
+import { loadStage2bSkillAsset } from '../../src/experiment/stage2b-treatment.js';
 import { main, parseStage2bArgs } from '../../src/experiment/stage2b.js';
 
 const v1 = { version: 'v1' as const, sha256: '1'.repeat(64) };
@@ -19,7 +23,8 @@ const v2 = { version: 'v2' as const, sha256: '2'.repeat(64) };
 
 function fixture(
   repetitions = 1,
-  batchId = 'stage2b-batch-boundary-fixture'
+  batchId = 'stage2b-batch-boundary-fixture',
+  initialBatchId?: string
 ): { manifest: Stage2bBatchManifest; records: Stage2bRecord[] } {
   const planned = expandStage2bSuite('boundary-v1', repetitions);
   const records = planned.map((run, index): Stage2bRecord => {
@@ -62,6 +67,7 @@ function fixture(
   const manifest: Stage2bBatchManifest = {
     version: 3,
     suite: 'boundary-v1',
+    ...(initialBatchId === undefined ? {} : { initialBatchId }),
     skills: { v1, v2 },
     batchId,
     createdAt: '2026-08-13T10:00:00.000Z',
@@ -105,6 +111,31 @@ test('summarizes the strict first-batch gate without publishing private traces',
     descriptionNegativeCompliance: { passed: 0, total: 3 },
     reasons: []
   });
+  assert.deepEqual(report.conditions, [{
+    condition: 'description',
+    taskSuccess: { passed: 6, total: 6 },
+    negativeCompliance: { passed: 0, total: 3 },
+    positiveCompliance: { passed: 3, total: 3 },
+    turns: 12,
+    toolCalls: 6,
+    totalTokens: 720
+  }, {
+    condition: 'skill-v1',
+    taskSuccess: { passed: 6, total: 6 },
+    negativeCompliance: { passed: 0, total: 3 },
+    positiveCompliance: { passed: 3, total: 3 },
+    turns: 12,
+    toolCalls: 6,
+    totalTokens: 720
+  }, {
+    condition: 'skill-v2',
+    taskSuccess: { passed: 6, total: 6 },
+    negativeCompliance: { passed: 3, total: 3 },
+    positiveCompliance: { passed: 3, total: 3 },
+    turns: 9,
+    toolCalls: 3,
+    totalTokens: 720
+  }]);
   assert.equal(report.cells.length, 18);
   const serialized = JSON.stringify(report);
   assert.doesNotMatch(serialized, /toolEvents|finalAnswer|runId|call-\d|"filter"|\.records/);
@@ -144,7 +175,7 @@ test('does not count a tool output observed before its JSON-positive call', () =
 
 test('combines one gated repetition with two confirmation repetitions', () => {
   const initial = fixture(1, 'stage2b-batch-boundary-initial');
-  const repeat = fixture(2, 'stage2b-batch-boundary-repeat');
+  const repeat = fixture(2, 'stage2b-batch-boundary-repeat', initial.manifest.batchId);
 
   const report = summarizeStage2bBoundaryBatches(initial, repeat);
 
@@ -159,6 +190,72 @@ test('combines one gated repetition with two confirmation repetitions', () => {
   assert.equal(report.runs[35]?.repetition, 2);
   assert.equal(report.runs[36]?.repetition, 3);
   assert.equal(report.initialGate.passed, true);
+});
+
+test('refuses confirmation repetitions when the initial boundary gate failed', () => {
+  const initial = fixture(1, 'stage2b-batch-boundary-failed-gate');
+  const positiveIndex = initial.records.findIndex(record => (
+    record.condition === 'skill-v2' && record.taskId === 'T15'
+  ));
+  assert.notEqual(positiveIndex, -1);
+  initial.records[positiveIndex] = {
+    ...initial.records[positiveIndex]!,
+    turns: 1,
+    toolCalls: 0,
+    toolEvents: []
+  };
+  const repeat = fixture(
+    2,
+    'stage2b-batch-boundary-disallowed-repeat',
+    initial.manifest.batchId
+  );
+
+  assert.throws(
+    () => summarizeStage2bBoundaryBatches(initial, repeat),
+    /initial gate.*pass/i
+  );
+});
+
+test('prepares two confirmation repetitions only from a passed matching initial batch', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'stage2b-boundary-confirmation-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(root, 'experiments'), { recursive: true });
+  const [skillV1, skillV2] = await Promise.all([
+    loadStage2bSkillAsset(root, 'skill-v1'),
+    loadStage2bSkillAsset(root, 'skill-v2')
+  ]);
+  assert.ok(skillV1);
+  assert.ok(skillV2);
+  assert.equal(skillV1.identity.version, 'v1');
+  assert.equal(skillV2.identity.version, 'v2');
+  const actualV1 = { version: 'v1' as const, sha256: skillV1.identity.sha256 };
+  const actualV2 = { version: 'v2' as const, sha256: skillV2.identity.sha256 };
+  const initial = fixture(1, 'stage2b-batch-boundary-passed-initial');
+  if (initial.manifest.version !== 3) assert.fail('Expected a boundary manifest.');
+  initial.manifest.skills = { v1: actualV1, v2: actualV2 };
+  initial.records = initial.records.map(record => ({
+    ...record,
+    skill: record.condition === 'skill-v1'
+      ? actualV1
+      : record.condition === 'skill-v2'
+        ? actualV2
+        : null
+  }));
+  await persistFixture(root, initial);
+
+  const prepared = await prepareStage2bBatch({
+    repositoryRoot: root,
+    suite: 'boundary-v1',
+    repetitions: 2,
+    initialBatchId: initial.manifest.batchId,
+    createdAt: new Date('2026-08-13T12:00:00.000Z')
+  });
+
+  assert.equal(prepared.manifest.version, 3);
+  if (prepared.manifest.version !== 3) assert.fail('Expected a boundary manifest.');
+  assert.equal(prepared.manifest.initialBatchId, initial.manifest.batchId);
+  assert.equal(prepared.manifest.repetitions, 2);
+  assert.equal(prepared.manifest.totalRuns, 36);
 });
 
 test('loads private records and writes separate sanitized boundary artifacts', async t => {

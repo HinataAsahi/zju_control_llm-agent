@@ -10,6 +10,7 @@ import type {
   ModelTurnResult
 } from '../../src/agent/model-client.js';
 import {
+  buildStage2bInstructions,
   main,
   parseStage2bArgs,
   runStage2bSmoke,
@@ -23,6 +24,7 @@ import {
 import { analyzeStage2bProcess } from '../../src/experiment/stage2b-evaluation.js';
 import {
   claimNextStage2bBatchRun,
+  prepareStage2bBatch,
   readStage2bBatchManifest,
   recordStage2bBatchRun,
   stage2bManifestSuite
@@ -542,17 +544,56 @@ test('accepts suite-aware bounded repetition arguments for batch preparation', (
     parseStage2bArgs(['prepare', '--repetitions', '2', '--suite', 'diagnostic-v1']),
     { mode: 'prepare', suite: 'diagnostic-v1', repetitions: 2 }
   );
+  assert.deepEqual(
+    parseStage2bArgs([
+      'prepare',
+      '--suite', 'boundary-v1',
+      '--repetitions', '2',
+      '--initial-batch', 'stage2b-batch-boundary-initial'
+    ]),
+    {
+      mode: 'prepare',
+      suite: 'boundary-v1',
+      repetitions: 2,
+      initialBatchId: 'stage2b-batch-boundary-initial'
+    }
+  );
   for (const argv of [
     ['prepare', '--repetitions'],
     ['prepare', '--repetitions', '0'],
     ['prepare', '--repetitions', '101'],
     ['prepare', '--unknown', '2'],
     ['prepare', '--suite', 'unknown-v1'],
+    ['prepare', '--suite', 'boundary-v1', '--repetitions', '2'],
+    ['prepare', '--suite', 'boundary-v1', '--initial-batch', 'stage2b-batch-boundary-initial'],
+    ['prepare', '--initial-batch', 'stage2b-batch-boundary-initial'],
     ['prepare', '--suite', 'baseline-v1', '--suite', 'diagnostic-v1'],
     ['prepare', '--suite', 'diagnostic-v1', '--repetitions']
   ]) {
     assert.throws(() => parseStage2bArgs(argv), /prepare|repetitions/i);
   }
+});
+
+test('requires a verified initial gate before preparing boundary confirmation repetitions', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-boundary-repeat-gate-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+
+  await assert.rejects(prepareStage2bBatch({
+    repositoryRoot,
+    suite: 'boundary-v1',
+    repetitions: 2,
+    createdAt: new Date('2026-08-13T11:00:00.000Z')
+  }), /initial batch/i);
+});
+
+test('builds skill instructions from the already verified contents', () => {
+  const instructions = buildStage2bInstructions('skill-v2', '# verified skill\n');
+
+  assert.match(instructions, /Reference skill: jq-query/);
+  assert.match(instructions, /# verified skill/);
+  assert.doesNotMatch(instructions, /# changed later/);
+  assert.throws(() => buildStage2bInstructions('skill-v2'), /contents/i);
 });
 
 test('accepts only one safe batch ID for run-next', () => {

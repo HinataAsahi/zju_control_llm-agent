@@ -347,6 +347,10 @@ test('uses a report-specific safe CLI failure message', () => {
     stage2bFailureMessage(['smoke']),
     'Stage 2B smoke failed. Inspect the local record when available.\n'
   );
+  assert.equal(
+    stage2bFailureMessage(['prepare']),
+    'Stage 2B batch preparation failed. Verify the requested suite and gate inputs.\n'
+  );
 });
 
 function batchFixture<Role extends 'pilot' | 'calibrated' | 'repeat'>(

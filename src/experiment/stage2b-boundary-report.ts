@@ -65,6 +65,16 @@ export interface Stage2bBoundaryInitialGate {
   reasons: string[];
 }
 
+export interface Stage2bBoundaryConditionSummary {
+  condition: Stage2bBoundaryCondition;
+  taskSuccess: Ratio;
+  negativeCompliance: Ratio;
+  positiveCompliance: Ratio;
+  turns: number;
+  toolCalls: number;
+  totalTokens: number;
+}
+
 export interface Stage2bBoundaryReport {
   version: 1;
   scope: 'boundary-observations';
@@ -91,6 +101,7 @@ export interface Stage2bBoundaryReport {
   turns: number;
   toolCalls: number;
   initialGate: Stage2bBoundaryInitialGate;
+  conditions: Stage2bBoundaryConditionSummary[];
   runs: Stage2bBoundaryPublicRun[];
   cells: Stage2bBoundaryCell[];
 }
@@ -128,6 +139,12 @@ export function summarizeStage2bBoundaryBatches(
     throw new Error('Stage 2B boundary report batches contain duplicate record IDs.');
   }
   const initialReport = summarizeStage2bBoundaryBatch(initial);
+  if (!initialReport.initialGate.passed) {
+    throw new Error('Stage 2B boundary confirmation requires the initial gate to pass.');
+  }
+  if (repeatManifest.initialBatchId !== initialManifest.batchId) {
+    throw new Error('Stage 2B boundary confirmation does not reference the initial batch.');
+  }
   const repeatReport = summarizeStage2bBoundaryBatch(repeat);
   if (!sameBoundaryConfiguration(initialReport, repeatReport)) {
     throw new Error('Stage 2B boundary report batch configuration mismatch.');
@@ -143,6 +160,22 @@ export function summarizeStage2bBoundaryBatches(
     repeatReport.batchId,
     initialReport.repetitions + repeatReport.repetitions
   );
+}
+
+export async function requirePassedStage2bBoundaryInitialBatch(
+  repositoryRoot: string,
+  batchId: string
+): Promise<Stage2bBoundaryReport> {
+  const input = await loadBoundaryBatch(resolve(repositoryRoot), batchId);
+  const manifest = requireBoundaryManifest(input.manifest);
+  if (manifest.repetitions !== 1 || manifest.initialBatchId !== undefined) {
+    throw new Error('Stage 2B boundary confirmation requires one initial batch.');
+  }
+  const report = summarizeStage2bBoundaryBatch(input);
+  if (!report.initialGate.passed) {
+    throw new Error('Stage 2B boundary confirmation requires the initial gate to pass.');
+  }
+  return report;
 }
 
 function buildBoundaryReport(
@@ -181,6 +214,7 @@ function buildBoundaryReport(
     turns: runs.reduce((sum, run) => sum + run.turns, 0),
     toolCalls: runs.reduce((sum, run) => sum + run.toolCalls, 0),
     initialGate: gate,
+    conditions: conditionSummaries(runs),
     runs,
     cells: boundaryCells(runs)
   };
@@ -207,6 +241,12 @@ export function renderStage2bBoundaryMarkdown(report: Stage2bBoundaryReport): st
     ...(report.initialGate.reasons.length === 0
       ? []
       : ['未通过原因：', '', ...report.initialGate.reasons.map(reason => `- ${reason}`), '']),
+    '## 条件汇总',
+    '',
+    '| 条件 | 任务正确 | 纯文本负例合规 | JSON 正例合规 | 回合 | 工具调用 | 总 Token |',
+    '|---|---:|---:|---:|---:|---:|---:|',
+    ...report.conditions.map(summary => `| ${conditionLabel(summary.condition)} | ${ratio(summary.taskSuccess)} | ${ratio(summary.negativeCompliance)} | ${ratio(summary.positiveCompliance)} | ${summary.turns} | ${summary.toolCalls} | ${summary.totalTokens} |`),
+    '',
     '## 总体结果',
     '',
     '| 完成 | 任务成功 | 工具合规 | 回合 | 工具调用 | 总 Token |',
@@ -432,6 +472,25 @@ function boundaryCells(runs: Stage2bBoundaryPublicRun[]): Stage2bBoundaryCell[] 
       turns: metric(group.map(run => run.turns)),
       toolCalls: metric(group.map(run => run.toolCalls)),
       totalTokens: { ...metric(tokens), sum: tokens.reduce((sum, value) => sum + value, 0) }
+    };
+  });
+}
+
+function conditionSummaries(
+  runs: Stage2bBoundaryPublicRun[]
+): Stage2bBoundaryConditionSummary[] {
+  return (['description', 'skill-v1', 'skill-v2'] as const).map(condition => {
+    const selected = runs.filter(run => run.condition === condition);
+    const negative = selected.filter(run => isNegative(run.taskId));
+    const positive = selected.filter(run => !isNegative(run.taskId));
+    return {
+      condition,
+      taskSuccess: countRatio(selected, run => run.taskSuccess === true),
+      negativeCompliance: countRatio(negative, run => run.toolCompliance),
+      positiveCompliance: countRatio(positive, run => run.toolCompliance),
+      turns: selected.reduce((sum, run) => sum + run.turns, 0),
+      toolCalls: selected.reduce((sum, run) => sum + run.toolCalls, 0),
+      totalTokens: selected.reduce((sum, run) => sum + run.usage.totalTokens, 0)
     };
   });
 }
