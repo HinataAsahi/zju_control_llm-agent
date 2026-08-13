@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   mkdir,
   mkdtemp,
@@ -10,12 +11,13 @@ import {
   writeFile
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 import type { Stage2bBatchManifest } from '../../src/experiment/stage2b-batch.js';
 import {
   renderStage2bDiagnosticMarkdown,
   summarizeStage2bDiagnosticBatch,
+  summarizeStage2bDiagnosticBatches,
   writeStage2bDiagnosticReport
 } from '../../src/experiment/stage2b-diagnostic-report.js';
 import {
@@ -56,6 +58,193 @@ test('summarizes nine diagnostic cells with safe derived process metrics', () =>
   assert.match(markdown, /小样本/);
   assertSafePublicText(JSON.stringify(report));
   assertSafePublicText(markdown);
+});
+
+test('preserves the reviewed single-batch public artifact bytes', async () => {
+  const resultsRoot = resolve('experiments/stage-2b/results/diagnostic-v1');
+  const jsonText = await readFile(join(resultsRoot, 'observations.json'), 'utf8');
+  const markdownText = await readFile(join(resultsRoot, 'report.zh.md'), 'utf8');
+  const reviewed = JSON.parse(jsonText) as ReturnType<typeof summarizeStage2bDiagnosticBatch>;
+
+  assert.equal(`${JSON.stringify(reviewed, null, 2)}\n`, jsonText);
+  assert.equal(renderStage2bDiagnosticMarkdown(reviewed), markdownText);
+  assert.equal(reviewed.repeatBatchId, undefined);
+
+  const summarizedBytes = `${JSON.stringify(
+    summarizeStage2bDiagnosticBatch(diagnosticFixture()),
+    null,
+    2
+  )}\n`;
+  // SHA-256 of the fixed single-batch fixture serialized by the 23e2a87 implementation.
+  assert.equal(
+    createHash('sha256').update(summarizedBytes).digest('hex'),
+    '9ec167aaba03a0c4cafa62000ba69af33a598b3dd52d91928b3206e3cf10e316'
+  );
+});
+
+test('combines an initial batch with two complete repetitions as n=3', () => {
+  const initial = diagnosticFixture(
+    1,
+    'stage2b-batch-20260813T000000000Z-initial',
+    0,
+    true
+  );
+  const repeat = diagnosticFixture(
+    2,
+    'stage2b-batch-20260814T000000000Z-repeat',
+    1_000,
+    true
+  );
+  const initialReport = summarizeStage2bDiagnosticBatch(initial);
+  const repeatReport = summarizeStage2bDiagnosticBatch(repeat);
+  const report = summarizeStage2bDiagnosticBatches(initial, repeat);
+
+  assert.equal(report.batchId, initial.manifest.batchId);
+  assert.equal(report.repeatBatchId, repeat.manifest.batchId);
+  assert.equal(report.repetitions, 3);
+  assert.equal(report.runs.length, 27);
+  assert.deepEqual(report.counts, {
+    total: 27,
+    completed: 27,
+    failed: 0,
+    taskSuccess: 18,
+    toolCompliance: 21,
+    recoverySuccess: 3,
+    recoveryApplicable: 6,
+    limitExceeded: 0
+  });
+  assert.deepEqual(new Set(report.runs.map(run => run.repetition)), new Set([1, 2, 3]));
+  assert.equal(new Set(report.runs.map(run =>
+    `${run.taskId}/${run.condition}/${run.repetition}`
+  )).size, 27);
+  assert.ok(report.cells.every(cell => cell.observations === 3));
+  assert.deepEqual(report.cells.map(cell => [cell.taskId, cell.condition]), matrix);
+  assert.deepEqual(report.usage, sumUsages(initialReport.usage, repeatReport.usage));
+  assert.equal(report.turns, initialReport.turns + repeatReport.turns);
+  assert.equal(report.toolCalls, initialReport.toolCalls + repeatReport.toolCalls);
+  for (const cell of report.cells) {
+    const initialCell = initialReport.cells.find(candidate =>
+      candidate.taskId === cell.taskId && candidate.condition === cell.condition
+    )!;
+    const repeatCell = repeatReport.cells.find(candidate =>
+      candidate.taskId === cell.taskId && candidate.condition === cell.condition
+    )!;
+    assert.equal(cell.completed, initialCell.completed + repeatCell.completed);
+    assert.equal(cell.taskSuccess, initialCell.taskSuccess + repeatCell.taskSuccess);
+    assert.equal(cell.toolCompliance, initialCell.toolCompliance + repeatCell.toolCompliance);
+    assert.equal(cell.recoverySuccess, initialCell.recoverySuccess + repeatCell.recoverySuccess);
+    assert.equal(cell.recoveryApplicable, initialCell.recoveryApplicable + repeatCell.recoveryApplicable);
+    assert.equal(cell.totalTokens.sum, initialCell.totalTokens.sum + repeatCell.totalTokens.sum);
+    assert.deepEqual(
+      cell.firstCallOutcomes,
+      mergeCounts(initialCell.firstCallOutcomes, repeatCell.firstCallOutcomes)
+    );
+    assert.deepEqual(
+      cell.strategies,
+      mergeCounts(initialCell.strategies, repeatCell.strategies)
+    );
+    const cellRuns = report.runs.filter(run =>
+      run.taskId === cell.taskId && run.condition === cell.condition
+    );
+    assert.deepEqual(cell.turns, metric(cellRuns.map(run => run.turns)));
+    assert.deepEqual(cell.toolCalls, metric(cellRuns.map(run => run.toolCalls)));
+    assert.deepEqual(cell.totalTokens, {
+      ...metric(cellRuns.map(run => run.usage.totalTokens)),
+      sum: cellRuns.reduce((sum, run) => sum + run.usage.totalTokens, 0)
+    });
+  }
+  const markdown = renderStage2bDiagnosticMarkdown(report);
+  assert.match(markdown, /initial.*repeat/s);
+  const detailRows = markdown
+    .split('## 逐项观测\n')[1]!
+    .split('\n## 任务解释重点')[0]!
+    .split('\n')
+    .filter(line => /^\| T(?:9|10|11) \|/.test(line));
+  assert.equal(detailRows.length, 27);
+  assertSafePublicText(JSON.stringify(report));
+  assertSafePublicText(markdown);
+
+  assert.throws(() => summarizeStage2bDiagnosticBatches(initial, {
+    ...repeat,
+    manifest: { ...repeat.manifest, batchId: initial.manifest.batchId }
+  }), /distinct|different|duplicate.*batch/i);
+
+  const incompatible = diagnosticFixture(
+    2,
+    'stage2b-batch-20260814T000000000Z-incompatible'
+  );
+  incompatible.manifest.sampling = { temperature: null };
+  incompatible.records.forEach(record => { record.sampling = { temperature: null }; });
+  assert.throws(
+    () => summarizeStage2bDiagnosticBatches(initial, incompatible),
+    /configuration|temperature|sampling/i
+  );
+
+  const duplicateRecord = diagnosticFixture(
+    2,
+    'stage2b-batch-20260814T000000000Z-duplicate-record'
+  );
+  duplicateRecord.records[0]!.runId = initial.records[0]!.runId;
+  Object.assign(duplicateRecord.manifest.runs[0]!, {
+    recordRunId: initial.records[0]!.runId
+  });
+  assert.throws(
+    () => summarizeStage2bDiagnosticBatches(initial, duplicateRecord),
+    /duplicate record/i
+  );
+
+  for (const [field, value] of [
+    ['provider', 'other-provider'],
+    ['model', 'other-model'],
+    ['thinking', 'other-thinking']
+  ] as const) {
+    const changed = diagnosticFixture(2, `stage2b-batch-20260814T000000000Z-${field}`);
+    Object.assign(changed.manifest, { [field]: value });
+    changed.records.forEach(record => { Object.assign(record, { [field]: value }); });
+    assert.throws(
+      () => summarizeStage2bDiagnosticBatches(initial, changed),
+      /configuration/i,
+      field
+    );
+  }
+
+  for (const [field, value] of [
+    ['maxTurns', 7],
+    ['maxToolCalls', 6],
+    ['requestTimeoutMs', 60_001],
+    ['totalTimeoutMs', 120_001]
+  ] as const) {
+    const changed = diagnosticFixture(2, `stage2b-batch-20260814T000000000Z-${field}`);
+    changed.manifest.limits = { ...changed.manifest.limits, [field]: value };
+    changed.records.forEach(record => {
+      record.limits = { ...record.limits, [field]: value };
+    });
+    assert.throws(
+      () => summarizeStage2bDiagnosticBatches(initial, changed),
+      /configuration/i,
+      field
+    );
+  }
+
+  const wrongMatrix = diagnosticFixture(
+    2,
+    'stage2b-batch-20260814T000000000Z-wrong-matrix'
+  );
+  wrongMatrix.manifest.runs[0]!.condition = 'description';
+  assert.throws(
+    () => summarizeStage2bDiagnosticBatches(initial, wrongMatrix),
+    /plan mismatch/i
+  );
+
+  const wrongSuite = diagnosticFixture(
+    2,
+    'stage2b-batch-20260814T000000000Z-wrong-suite'
+  );
+  Object.assign(wrongSuite.manifest, { suite: 'baseline-v1' });
+  assert.throws(
+    () => summarizeStage2bDiagnosticBatches(initial, wrongSuite),
+    /version 2 diagnostic manifest/i
+  );
 });
 
 test('rejects non-diagnostic, duplicate, missing, and mismatched report inputs', () => {
@@ -210,20 +399,90 @@ test('routes the mutually exclusive diagnostic report CLI without credentials or
   });
 
   assert.equal(exitCode, 0);
-  assert.deepEqual(JSON.parse(output), {
+  const expectedSingleOutput = {
     status: 'reported',
     kind: 'diagnostic',
     batchId: fixture.manifest.batchId,
     jsonPath: join(repositoryRoot, 'experiments/stage-2b/results/diagnostic-v1/observations.json'),
     markdownPath: join(repositoryRoot, 'experiments/stage-2b/results/diagnostic-v1/report.zh.md')
+  };
+  assert.deepEqual(JSON.parse(output), expectedSingleOutput);
+  assert.equal(output, `${JSON.stringify(expectedSingleOutput, null, 2)}\n`);
+
+  const repeat = diagnosticFixture(
+    2,
+    'stage2b-batch-20260814T000000000Z-repeat'
+  );
+  await persistDiagnosticFixture(repositoryRoot, repeat);
+  const combinedArgv = [
+    'report', '--batch', fixture.manifest.batchId,
+    '--repeat-batch', repeat.manifest.batchId
+  ];
+  assert.deepEqual(parseStage2bArgs(combinedArgv), {
+    mode: 'report',
+    kind: 'diagnostic',
+    batchId: fixture.manifest.batchId,
+    repeatBatchId: repeat.manifest.batchId
   });
+  output = '';
+  assert.equal(await main(combinedArgv, {
+    repositoryRoot,
+    env: new Proxy({}, {
+      get: () => { throw new Error('diagnostic report must not read an API key'); }
+    }),
+    writeOutput: text => { output += text; },
+    dependencies: {
+      createModelClient: () => { throw new Error('report must not create a model client'); },
+      connectTools: async () => { throw new Error('report must not connect MCP tools'); }
+    }
+  }), 0);
+  assert.equal(JSON.parse(output).repeatBatchId, repeat.manifest.batchId);
+  assert.equal(output, `${JSON.stringify({
+    status: 'reported',
+    kind: 'diagnostic',
+    batchId: fixture.manifest.batchId,
+    repeatBatchId: repeat.manifest.batchId,
+    jsonPath: join(repositoryRoot, 'experiments/stage-2b/results/diagnostic-v1/observations.json'),
+    markdownPath: join(repositoryRoot, 'experiments/stage-2b/results/diagnostic-v1/report.zh.md')
+  }, null, 2)}\n`);
+  assert.equal(
+    JSON.parse(await readFile(
+      join(repositoryRoot, 'experiments/stage-2b/results/diagnostic-v1/observations.json'),
+      'utf8'
+    )).repetitions,
+    3
+  );
+
+  const malformedRepeat = diagnosticFixture(
+    2,
+    'stage2b-batch-20260814T000000000Z-malformed-repeat'
+  );
+  await persistDiagnosticFixture(repositoryRoot, malformedRepeat);
+  const malformedRecordPath = join(
+    repositoryRoot,
+    '.experiment-runs/stage-2b',
+    malformedRepeat.records[0]!.runId,
+    'record.json'
+  );
+  const malformedRecord = JSON.parse(await readFile(malformedRecordPath, 'utf8'));
+  delete malformedRecord.startedAt;
+  await writeFile(malformedRecordPath, `${JSON.stringify(malformedRecord, null, 2)}\n`);
+  await assert.rejects(writeStage2bDiagnosticReport({
+    repositoryRoot,
+    batchId: fixture.manifest.batchId,
+    repeatBatchId: malformedRepeat.manifest.batchId
+  }), /record|invalid|schema/i);
 });
 
-function diagnosticFixture(): {
+function diagnosticFixture(
+  repetitions = 1,
+  batchId = 'stage2b-batch-20260813T000000000Z-diagnostic',
+  tokenOffset = 0,
+  useSentinelUsage = false
+): {
   manifest: Stage2bBatchManifest;
   records: Stage2bReportRecord[];
 } {
-  const batchId = 'stage2b-batch-20260813T000000000Z-diagnostic';
   const processFixtures: Array<{
     taskSuccess: boolean;
     recoverySuccess: boolean | null;
@@ -254,10 +513,18 @@ function diagnosticFixture(): {
     }] },
     { taskSuccess: false, recoverySuccess: false, toolEvents: failedQuery('call-private-unresolved') }
   ];
-  const records: Stage2bReportRecord[] = matrix.map(([taskId, condition], index) => {
-    const process = processFixtures[index]!;
+  const expanded = Array.from({ length: repetitions }, (_, repetitionIndex) =>
+    matrix.map(([taskId, condition], cellIndex) => ({
+      taskId,
+      condition,
+      repetition: repetitionIndex + 1,
+      process: processFixtures[cellIndex]!
+    }))
+  ).flat();
+  const records: Stage2bReportRecord[] = expanded.map((run, index) => {
+    const { taskId, condition, process, repetition } = run;
     return {
-      runId: `private-record-${index + 1}`,
+      runId: `${batchId}-record-r${repetition}-${index + 1}`,
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
       thinking: 'none',
@@ -271,7 +538,9 @@ function diagnosticFixture(): {
       turns: process.toolEvents.filter(event => event.type === 'function_call').length + 1,
       toolCalls: process.toolEvents.filter(event => event.type === 'function_call').length,
       toolEvents: process.toolEvents,
-      usage: usage(100 + index)
+      usage: useSentinelUsage
+        ? sentinelUsage(tokenOffset + 100 + index)
+        : usage(tokenOffset + 100 + index)
     };
   });
   return {
@@ -284,14 +553,14 @@ function diagnosticFixture(): {
       model: 'deepseek-v4-flash',
       thinking: 'none',
       sampling: { temperature: 0 },
-      repetitions: 1,
-      totalRuns: matrix.length,
+      repetitions,
+      totalRuns: expanded.length,
       limits: limits(),
-      runs: matrix.map(([taskId, condition], index) => ({
-        runKey: `${taskId}-${condition}-r1`,
+      runs: expanded.map(({ taskId, condition, repetition }, index) => ({
+        runKey: `${taskId}-${condition}-r${repetition}`,
         taskId,
         condition,
-        repetition: 1,
+        repetition,
         status: 'completed' as const,
         recordRunId: records[index]!.runId,
         recordStatus: 'completed' as const,
@@ -384,6 +653,51 @@ function usage(totalTokens: number) {
     outputTokens: 20,
     reasoningOutputTokens: 0,
     totalTokens
+  };
+}
+
+function sentinelUsage(value: number) {
+  return {
+    inputTokens: value * 6,
+    cachedInputTokens: value * 2,
+    outputTokens: value * 4,
+    reasoningOutputTokens: value,
+    totalTokens: value * 10
+  };
+}
+
+function sumUsages(...values: Array<ReturnType<typeof usage>>) {
+  return values.reduce((sum, value) => ({
+    inputTokens: sum.inputTokens + value.inputTokens,
+    cachedInputTokens: sum.cachedInputTokens + value.cachedInputTokens,
+    outputTokens: sum.outputTokens + value.outputTokens,
+    reasoningOutputTokens: sum.reasoningOutputTokens + value.reasoningOutputTokens,
+    totalTokens: sum.totalTokens + value.totalTokens
+  }), {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0,
+    totalTokens: 0
+  });
+}
+
+function mergeCounts(...values: Array<Record<string, number>>) {
+  const merged: Record<string, number> = {};
+  for (const counts of values) {
+    for (const [key, count] of Object.entries(counts)) {
+      merged[key] = (merged[key] ?? 0) + count;
+    }
+  }
+  return merged;
+}
+
+function metric(values: number[]) {
+  const sum = values.reduce((total, value) => total + value, 0);
+  return {
+    min: Math.min(...values),
+    max: Math.max(...values),
+    mean: Number((sum / values.length).toFixed(2))
   };
 }
 

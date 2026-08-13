@@ -60,6 +60,7 @@ export interface Stage2bDiagnosticReport {
   scope: 'diagnostic-observations';
   suite: 'diagnostic-v1';
   batchId: string;
+  repeatBatchId?: string;
   createdAt: string;
   provider: 'deepseek';
   model: 'deepseek-v4-flash';
@@ -98,17 +99,58 @@ export function summarizeStage2bDiagnosticBatch(
   }
 
   const runs = manifest.runs.map(run => diagnosticRun(manifest, run, records));
+  return buildDiagnosticReport(manifest, runs);
+}
+
+export function summarizeStage2bDiagnosticBatches(
+  initial: Stage2bDiagnosticReportInput,
+  repeat: Stage2bDiagnosticReportInput
+): Stage2bDiagnosticReport {
+  validateDiagnosticManifest(initial.manifest);
+  validateDiagnosticManifest(repeat.manifest);
+  const initialReport = summarizeStage2bDiagnosticBatch(initial);
+  const repeatReport = summarizeStage2bDiagnosticBatch(repeat);
+  if (initialReport.batchId === repeatReport.batchId) {
+    throw new Error('Stage 2B diagnostic report batches must be distinct.');
+  }
+  const recordIds = [...initial.records, ...repeat.records].map(record => record.runId);
+  if (new Set(recordIds).size !== recordIds.length) {
+    throw new Error('Stage 2B diagnostic report batches contain duplicate record IDs.');
+  }
+  if (!sameDiagnosticConfiguration(initialReport, repeatReport)) {
+    throw new Error('Stage 2B diagnostic report batch configuration mismatch.');
+  }
+
+  const repeatRuns = repeatReport.runs.map(run => ({
+    ...run,
+    repetition: run.repetition + initialReport.repetitions
+  }));
+  return buildDiagnosticReport(
+    initial.manifest,
+    [...initialReport.runs, ...repeatRuns],
+    repeatReport.batchId,
+    initialReport.repetitions + repeatReport.repetitions
+  );
+}
+
+function buildDiagnosticReport(
+  manifest: Extract<Stage2bBatchManifest, { version: 2 }>,
+  runs: Stage2bDiagnosticPublicRun[],
+  repeatBatchId?: string,
+  repetitions = manifest.repetitions
+): Stage2bDiagnosticReport {
   return {
     version: 4,
     scope: 'diagnostic-observations',
     suite: 'diagnostic-v1',
     batchId: manifest.batchId,
+    ...(repeatBatchId === undefined ? {} : { repeatBatchId }),
     createdAt: manifest.createdAt,
     provider: manifest.provider,
     model: manifest.model,
     thinking: manifest.thinking,
     sampling: { ...manifest.sampling },
-    repetitions: manifest.repetitions,
+    repetitions,
     limits: { ...manifest.limits },
     counts: {
       total: runs.length,
@@ -129,16 +171,22 @@ export function summarizeStage2bDiagnosticBatch(
 }
 
 export function renderStage2bDiagnosticMarkdown(report: Stage2bDiagnosticReport): string {
+  const batchDescription = report.repeatBatchId === undefined
+    ? '本报告汇总一个 diagnostic-v1 批次，用于观察工具边界、一次查询、结构检查与错误后恢复。结果仅作描述性分析。'
+    : '本报告合并一个 diagnostic-v1 首轮批次与一个完整重复批次，用于复核工具边界、一次查询、结构检查与错误后恢复。结果仅作描述性分析。';
+  const batchLabel = report.repeatBatchId === undefined
+    ? report.batchId
+    : `${report.batchId}<br>${report.repeatBatchId}`;
   const lines = [
     '# Stage 2B 诊断观测报告',
     '',
-    '本报告汇总一个 diagnostic-v1 批次，用于观察工具边界、一次查询、结构检查与错误后恢复。结果仅作描述性分析。',
+    batchDescription,
     '',
     '## 批次配置',
     '',
     '| 批次 | 模型 | 温度 | 最大回合 | 最大工具调用 | 重复数 |',
     '|---|---|---:|---:|---:|---:|',
-    `| ${report.batchId} | ${report.model} | ${report.sampling.temperature ?? 'provider-default'} | ${report.limits.maxTurns} | ${report.limits.maxToolCalls} | ${report.repetitions} |`,
+    `| ${batchLabel} | ${report.model} | ${report.sampling.temperature ?? 'provider-default'} | ${report.limits.maxTurns} | ${report.limits.maxToolCalls} | ${report.repetitions} |`,
     '',
     '## 总体结果',
     '',
@@ -179,13 +227,33 @@ export function renderStage2bDiagnosticMarkdown(report: Stage2bDiagnosticReport)
 export async function writeStage2bDiagnosticReport(options: {
   repositoryRoot: string;
   batchId: string;
+  repeatBatchId?: string;
 }): Promise<{
   report: Stage2bDiagnosticReport;
   jsonPath: string;
   markdownPath: string;
 }> {
   const repositoryRoot = resolve(options.repositoryRoot);
-  const { manifest } = await readStage2bBatchManifest(repositoryRoot, options.batchId);
+  const initial = await loadDiagnosticReportInput(repositoryRoot, options.batchId);
+  const repeat = options.repeatBatchId === undefined
+    ? undefined
+    : await loadDiagnosticReportInput(repositoryRoot, options.repeatBatchId);
+  const report = repeat === undefined
+    ? summarizeStage2bDiagnosticBatch(initial)
+    : summarizeStage2bDiagnosticBatches(initial, repeat);
+  const resultsRoot = await ensurePublicResultsDirectory(repositoryRoot);
+  const jsonPath = join(resultsRoot, 'observations.json');
+  const markdownPath = join(resultsRoot, 'report.zh.md');
+  await writePublicFileAtomic(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
+  await writePublicFileAtomic(markdownPath, renderStage2bDiagnosticMarkdown(report));
+  return { report, jsonPath, markdownPath };
+}
+
+async function loadDiagnosticReportInput(
+  repositoryRoot: string,
+  batchId: string
+): Promise<Stage2bDiagnosticReportInput> {
+  const { manifest } = await readStage2bBatchManifest(repositoryRoot, batchId);
   validateDiagnosticManifest(manifest);
   const records: Stage2bReportRecord[] = [];
   for (const run of manifest.runs) {
@@ -194,13 +262,7 @@ export async function writeStage2bDiagnosticReport(options: {
     }
     records.push(await readStage2bReportRecord(repositoryRoot, run.recordRunId));
   }
-  const report = summarizeStage2bDiagnosticBatch({ manifest, records });
-  const resultsRoot = await ensurePublicResultsDirectory(repositoryRoot);
-  const jsonPath = join(resultsRoot, 'observations.json');
-  const markdownPath = join(resultsRoot, 'report.zh.md');
-  await writePublicFileAtomic(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
-  await writePublicFileAtomic(markdownPath, renderStage2bDiagnosticMarkdown(report));
-  return { report, jsonPath, markdownPath };
+  return { manifest, records };
 }
 
 function validateDiagnosticManifest(
@@ -362,6 +424,17 @@ function sameLimits(left: Stage2bRecord['limits'], right: Stage2bRecord['limits'
     && left.maxToolCalls === right.maxToolCalls
     && left.requestTimeoutMs === right.requestTimeoutMs
     && left.totalTimeoutMs === right.totalTimeoutMs;
+}
+
+function sameDiagnosticConfiguration(
+  left: Stage2bDiagnosticReport,
+  right: Stage2bDiagnosticReport
+): boolean {
+  return left.provider === right.provider
+    && left.model === right.model
+    && left.thinking === right.thinking
+    && left.sampling.temperature === right.sampling.temperature
+    && sameLimits(left.limits, right.limits);
 }
 
 function isDiagnosticTaskId(taskId: string): taskId is Stage2bDiagnosticTaskId {

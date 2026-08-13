@@ -87,6 +87,7 @@ export type Stage2bCommand = {
   mode: 'report';
   kind: 'diagnostic';
   batchId: string;
+  repeatBatchId?: string;
 };
 
 export type { Stage2bTaskId } from './stage2b-record.js';
@@ -120,7 +121,7 @@ const stage2bHelp = [
   `plan [--suite baseline-v1|diagnostic-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
   `prepare [--suite baseline-v1|diagnostic-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
   'run-next --batch <batch-id>;',
-  'report --batch <batch-id>; or',
+  'report --batch <batch-id> [--repeat-batch <batch-id>]; or',
   'report --pilot-batch <batch-id> --calibrated-batch <batch-id> [--repeat-batch <batch-id>]'
 ].join(' ');
 
@@ -360,12 +361,14 @@ export async function main(
     if (command.kind === 'diagnostic') {
       const result = await writeStage2bDiagnosticReport({
         repositoryRoot,
-        batchId: command.batchId
+        batchId: command.batchId,
+        ...(command.repeatBatchId ? { repeatBatchId: command.repeatBatchId } : {})
       });
       const output = `${JSON.stringify({
         status: 'reported',
         kind: 'diagnostic',
         batchId: command.batchId,
+        ...(command.repeatBatchId ? { repeatBatchId: command.repeatBatchId } : {}),
         jsonPath: result.jsonPath,
         markdownPath: result.markdownPath
       }, null, 2)}\n`;
@@ -515,12 +518,29 @@ export async function main(
 function parseReportArgs(argv: string[]): Extract<Stage2bCommand, { mode: 'report' }> {
   const diagnosticBatchId = argv[1];
   if (
-    argv.length === 2
-    && argv[0] === '--batch'
+    argv[0] === '--batch'
     && diagnosticBatchId
     && isStage2bBatchId(diagnosticBatchId)
   ) {
-    return { mode: 'report', kind: 'diagnostic', batchId: diagnosticBatchId };
+    if (argv.length === 2) {
+      return { mode: 'report', kind: 'diagnostic', batchId: diagnosticBatchId };
+    }
+    const repeatBatchId = argv[3];
+    if (
+      argv.length === 4
+      && argv[2] === '--repeat-batch'
+      && repeatBatchId
+      && isStage2bBatchId(repeatBatchId)
+      && repeatBatchId !== diagnosticBatchId
+    ) {
+      return {
+        mode: 'report',
+        kind: 'diagnostic',
+        batchId: diagnosticBatchId,
+        repeatBatchId
+      };
+    }
+    throw new Error(stage2bHelp);
   }
   let pilotBatchId: string | undefined;
   let calibratedBatchId: string | undefined;
