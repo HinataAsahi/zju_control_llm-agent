@@ -20,6 +20,7 @@ import {
   writeStage2bRecord,
   type Stage2bRecord
 } from '../../src/experiment/stage2b-record.js';
+import { analyzeStage2bProcess } from '../../src/experiment/stage2b-evaluation.js';
 import {
   claimNextStage2bBatchRun,
   readStage2bBatchManifest,
@@ -358,6 +359,43 @@ test('does not count a correct T7 answer without the required recovery path', as
 
   assert.equal(record.taskSuccess, true);
   assert.equal(record.recoverySuccess, false);
+});
+
+test('does not count a same-turn successful jq call as recovery from an unobserved error', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-same-turn-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+
+  const record = await runStage2bSmoke({
+    repositoryRoot,
+    taskId: 'T11',
+    apiKey: 'offline-test-key',
+    dependencies: {
+      createModelClient: () => new ScriptedModel([
+        multiToolTurn([
+          {
+            callId: 'same-turn-error',
+            filter: '.series | map(.service)',
+            source: { type: 'file', path: 'metrics.json' }
+          }, {
+            callId: 'same-turn-success',
+            filter: '.payload.series | map(select(.samples[-1].latencyMs > 200) | .service) | sort',
+            source: { type: 'file', path: 'metrics.json' }
+          }
+        ]),
+        finalTurn(['api', 'search'], 'The second same-turn query returned the expected answer.')
+      ]),
+      connectTools: options => McpToolBridge.connect({
+        ...options,
+        serverEntrypoint: resolve('dist/src/mcp/server.js')
+      })
+    }
+  });
+
+  assert.equal(record.taskSuccess, true);
+  assert.equal(record.toolCalls, 2);
+  assert.equal(record.recoverySuccess, false);
+  assert.equal(analyzeStage2bProcess(record).strategy, 'unresolved');
 });
 
 test('keeps description and skill condition inputs isolated', async t => {
@@ -1417,6 +1455,23 @@ function toolTurn(
   return {
     historyItems: [{ type: 'function_call', ...call }],
     functionCalls: [call],
+    usage: usage(10, 2)
+  };
+}
+
+function multiToolTurn(calls: Array<{
+  callId: string;
+  filter: string;
+  source: Record<string, unknown>;
+}>): ModelTurnResult {
+  const functionCalls = calls.map(call => ({
+    callId: call.callId,
+    name: 'jq_query',
+    arguments: JSON.stringify({ filter: call.filter, source: call.source })
+  }));
+  return {
+    historyItems: functionCalls.map(call => ({ type: 'function_call' as const, ...call })),
+    functionCalls,
     usage: usage(10, 2)
   };
 }

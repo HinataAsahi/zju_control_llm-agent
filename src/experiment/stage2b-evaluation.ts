@@ -50,6 +50,8 @@ interface ClassifiedCall {
   action: 'inspect-root' | 'task-query' | 'invalid-arguments';
   outcome: PublicOutcome;
   result: 'ok' | 'error' | 'structural';
+  callIndex: number;
+  outputIndex?: number;
 }
 
 const publicJqErrorCodes = new Set<Stage2bPublicJqErrorCode>([
@@ -139,19 +141,43 @@ function evaluateRequiredRecovery(input: Stage2bRecoveryInput): boolean | null {
 }
 
 function classifyJqCalls(events: readonly Stage2bToolEvent[]): ClassifiedCall[] {
-  return events
-    .filter(isJqCall)
-    .map(call => {
-      const argumentsValue = parseJsonObject(call.arguments);
-      const filter = argumentsValue?.filter;
-      const action = typeof filter !== 'string'
-        ? 'invalid-arguments' as const
-        : filter.trim() === '.'
-          ? 'inspect-root' as const
-          : 'task-query' as const;
-      const classified = classifyOutput(outputForCall(events, call.callId));
-      return { action, ...classified };
-    });
+  const callPositions = groupEventPositions(events, 'function_call');
+  const outputPositions = groupEventPositions(events, 'function_call_output');
+  return events.flatMap((event, callIndex) => {
+    if (!isJqCall(event)) return [];
+    const call = event;
+    const argumentsValue = parseJsonObject(call.arguments);
+    const filter = argumentsValue?.filter;
+    const action = typeof filter !== 'string'
+      ? 'invalid-arguments' as const
+      : filter.trim() === '.'
+        ? 'inspect-root' as const
+        : 'task-query' as const;
+    const matchingCalls = callPositions.get(call.callId) ?? [];
+    const matchingOutputs = outputPositions.get(call.callId) ?? [];
+    if (
+      matchingCalls.length !== 1
+      || matchingOutputs.length > 1
+      || (matchingOutputs[0] !== undefined && matchingOutputs[0] <= callIndex)
+    ) {
+      return [{
+        action,
+        outcome: 'malformed-output' as const,
+        result: 'structural' as const,
+        callIndex
+      }];
+    }
+    const outputIndex = matchingOutputs[0];
+    const output = outputIndex === undefined
+      ? undefined
+      : extractOutput(events[outputIndex]);
+    return [{
+      action,
+      ...classifyOutput(output),
+      callIndex,
+      ...(outputIndex === undefined ? {} : { outputIndex })
+    }];
+  });
 }
 
 function classifyOutput(output: string | undefined): Pick<ClassifiedCall, 'outcome' | 'result'> {
@@ -171,12 +197,32 @@ function classifyOutput(output: string | undefined): Pick<ClassifiedCall, 'outco
 }
 
 function hasSuccessfulCallAfterError(calls: readonly ClassifiedCall[]): boolean {
-  let sawError = false;
-  for (const call of calls) {
-    if (call.result === 'error') sawError = true;
-    else if (sawError && call.result === 'ok') return true;
+  for (const error of calls) {
+    const errorOutputIndex = error.outputIndex;
+    if (error.result !== 'error' || errorOutputIndex === undefined) continue;
+    if (calls.some(success =>
+      success.result === 'ok' && success.callIndex > errorOutputIndex
+    )) return true;
   }
   return false;
+}
+
+function groupEventPositions(
+  events: readonly Stage2bToolEvent[],
+  type: Stage2bToolEvent['type']
+): Map<string, number[]> {
+  const positions = new Map<string, number[]>();
+  events.forEach((event, index) => {
+    if (event.type !== type) return;
+    const current = positions.get(event.callId) ?? [];
+    current.push(index);
+    positions.set(event.callId, current);
+  });
+  return positions;
+}
+
+function extractOutput(event: Stage2bToolEvent | undefined): string | undefined {
+  return event?.type === 'function_call_output' ? event.output : undefined;
 }
 
 function outputForCall(events: readonly Stage2bToolEvent[], callId: string): string | undefined {

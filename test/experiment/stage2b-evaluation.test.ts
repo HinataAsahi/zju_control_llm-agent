@@ -199,3 +199,59 @@ test('derives required and natural recovery without exposing private events', ()
     taskId: 'T9', status: 'completed', taskSuccess: true, toolEvents: []
   }), null);
 });
+
+test('requires a retry call to occur after the model observed an error output', () => {
+  const sameTurnEvents: Stage2bToolEvent[] = [{
+    type: 'function_call',
+    callId: 'same-turn-error',
+    name: 'jq_query',
+    arguments: JSON.stringify({ filter: '[.[]]', source: { type: 'file', path: 'private.json' } })
+  }, {
+    type: 'function_call',
+    callId: 'same-turn-success',
+    name: 'jq_query',
+    arguments: JSON.stringify({ filter: '[.payload[]]', source: { type: 'file', path: 'private.json' } })
+  }, {
+    type: 'function_call_output',
+    callId: 'same-turn-error',
+    output: JSON.stringify({ ok: false, error: { code: 'JQ_RUNTIME_ERROR' } })
+  }, {
+    type: 'function_call_output',
+    callId: 'same-turn-success',
+    output: JSON.stringify({ ok: true, values: ['private-output'] })
+  }];
+
+  assert.deepEqual(analyzeStage2bProcess({
+    taskId: 'T11', taskSuccess: true, toolEvents: sameTurnEvents
+  }), {
+    toolCompliance: true,
+    firstCallOutcome: 'JQ_RUNTIME_ERROR',
+    strategy: 'unresolved',
+    tracePath: ['task-query:JQ_RUNTIME_ERROR', 'task-query:ok']
+  });
+  assert.equal(evaluateStage2bRecovery({
+    taskId: 'T11', status: 'completed', taskSuccess: true, toolEvents: sameTurnEvents
+  }), false);
+});
+
+test('treats ambiguous or out-of-order call outputs as malformed', () => {
+  const duplicateIdEvents: Stage2bToolEvent[] = [{
+    type: 'function_call_output', callId: 'duplicate', output: '{"ok":true}'
+  }, {
+    type: 'function_call', callId: 'duplicate', name: 'jq_query', arguments: '{"filter":"."}'
+  }, {
+    type: 'function_call_output', callId: 'duplicate', output: '{"ok":false}'
+  }];
+
+  assert.deepEqual(analyzeStage2bProcess({
+    taskId: 'T11', taskSuccess: true, toolEvents: duplicateIdEvents
+  }), {
+    toolCompliance: true,
+    firstCallOutcome: 'malformed-output',
+    strategy: 'inspect-first',
+    tracePath: ['inspect-root:malformed-output']
+  });
+  assert.equal(evaluateStage2bRecovery({
+    taskId: 'T11', status: 'completed', taskSuccess: true, toolEvents: duplicateIdEvents
+  }), null);
+});
