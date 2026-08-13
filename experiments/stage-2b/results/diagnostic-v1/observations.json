@@ -3,6 +3,7 @@
   "scope": "diagnostic-observations",
   "suite": "diagnostic-v1",
   "batchId": "stage2b-batch-20260813T082555279Z-4f392844",
+  "repeatBatchId": "stage2b-batch-20260813T090851406Z-0bed70b9",
   "createdAt": "2026-08-13T08:25:55.279Z",
   "provider": "deepseek",
   "model": "deepseek-v4-flash",
@@ -10,7 +11,7 @@
   "sampling": {
     "temperature": 0
   },
-  "repetitions": 1,
+  "repetitions": 3,
   "limits": {
     "maxTurns": 6,
     "maxToolCalls": 5,
@@ -18,24 +19,24 @@
     "totalTimeoutMs": 120000
   },
   "counts": {
-    "total": 9,
-    "completed": 9,
+    "total": 27,
+    "completed": 27,
     "failed": 0,
-    "taskSuccess": 9,
-    "toolCompliance": 7,
-    "recoverySuccess": 1,
-    "recoveryApplicable": 1,
+    "taskSuccess": 27,
+    "toolCompliance": 21,
+    "recoverySuccess": 2,
+    "recoveryApplicable": 2,
     "limitExceeded": 0
   },
   "usage": {
-    "inputTokens": 20160,
-    "cachedInputTokens": 16000,
-    "outputTokens": 1844,
+    "inputTokens": 60617,
+    "cachedInputTokens": 53248,
+    "outputTokens": 5485,
     "reasoningOutputTokens": 0,
-    "totalTokens": 22004
+    "totalTokens": 66102
   },
-  "turns": 22,
-  "toolCalls": 13,
+  "turns": 66,
+  "toolCalls": 39,
   "runs": [
     {
       "taskId": "T9",
@@ -246,23 +247,443 @@
         "inspect-root:ok",
         "task-query:ok"
       ]
+    },
+    {
+      "taskId": "T9",
+      "condition": "explicit",
+      "repetition": 2,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 613,
+        "cachedInputTokens": 512,
+        "outputTokens": 37,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 650
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T10",
+      "condition": "description",
+      "repetition": 2,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 1435,
+        "cachedInputTokens": 1280,
+        "outputTokens": 197,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1632
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T11",
+      "condition": "skill",
+      "repetition": 2,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 5,
+      "toolCalls": 4,
+      "usage": {
+        "inputTokens": 6421,
+        "cachedInputTokens": 5760,
+        "outputTokens": 404,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 6825
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok",
+        "inspect-root:ok",
+        "task-query:ok",
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T9",
+      "condition": "description",
+      "repetition": 2,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 1368,
+        "cachedInputTokens": 1280,
+        "outputTokens": 195,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1563
+      },
+      "toolCompliance": false,
+      "firstCallOutcome": "ok",
+      "strategy": "unnecessary-tool",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T10",
+      "condition": "skill",
+      "repetition": 2,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 2278,
+        "cachedInputTokens": 2176,
+        "outputTokens": 210,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 2488
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T11",
+      "condition": "explicit",
+      "repetition": 2,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 3,
+      "toolCalls": 2,
+      "usage": {
+        "inputTokens": 2299,
+        "cachedInputTokens": 2176,
+        "outputTokens": 211,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 2510
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "inspect-first",
+      "tracePath": [
+        "inspect-root:ok",
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T9",
+      "condition": "skill",
+      "repetition": 2,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 2151,
+        "cachedInputTokens": 1920,
+        "outputTokens": 134,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 2285
+      },
+      "toolCompliance": false,
+      "firstCallOutcome": "ok",
+      "strategy": "unnecessary-tool",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T10",
+      "condition": "explicit",
+      "repetition": 2,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 1461,
+        "cachedInputTokens": 1280,
+        "outputTokens": 197,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1658
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T11",
+      "condition": "description",
+      "repetition": 2,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 3,
+      "toolCalls": 2,
+      "usage": {
+        "inputTokens": 2260,
+        "cachedInputTokens": 2176,
+        "outputTokens": 201,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 2461
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "inspect-first",
+      "tracePath": [
+        "inspect-root:ok",
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T9",
+      "condition": "explicit",
+      "repetition": 3,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 613,
+        "cachedInputTokens": 512,
+        "outputTokens": 37,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 650
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "no-call",
+      "strategy": "avoided-tool",
+      "tracePath": []
+    },
+    {
+      "taskId": "T10",
+      "condition": "description",
+      "repetition": 3,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 1435,
+        "cachedInputTokens": 1280,
+        "outputTokens": 197,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1632
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T11",
+      "condition": "skill",
+      "repetition": 3,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": true,
+      "turns": 4,
+      "toolCalls": 3,
+      "usage": {
+        "inputTokens": 5045,
+        "cachedInputTokens": 4736,
+        "outputTokens": 339,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 5384
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "JQ_RUNTIME_ERROR",
+      "strategy": "recovered-after-error",
+      "tracePath": [
+        "task-query:JQ_RUNTIME_ERROR",
+        "inspect-root:ok",
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T9",
+      "condition": "description",
+      "repetition": 3,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 1368,
+        "cachedInputTokens": 1280,
+        "outputTokens": 195,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1563
+      },
+      "toolCompliance": false,
+      "firstCallOutcome": "ok",
+      "strategy": "unnecessary-tool",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T10",
+      "condition": "skill",
+      "repetition": 3,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 2278,
+        "cachedInputTokens": 2176,
+        "outputTokens": 210,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 2488
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T11",
+      "condition": "explicit",
+      "repetition": 3,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 3,
+      "toolCalls": 2,
+      "usage": {
+        "inputTokens": 2299,
+        "cachedInputTokens": 2176,
+        "outputTokens": 211,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 2510
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "inspect-first",
+      "tracePath": [
+        "inspect-root:ok",
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T9",
+      "condition": "skill",
+      "repetition": 3,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 3,
+      "toolCalls": 2,
+      "usage": {
+        "inputTokens": 3412,
+        "cachedInputTokens": 3072,
+        "outputTokens": 257,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 3669
+      },
+      "toolCompliance": false,
+      "firstCallOutcome": "ok",
+      "strategy": "unnecessary-tool",
+      "tracePath": [
+        "task-query:ok",
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T10",
+      "condition": "explicit",
+      "repetition": 3,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 1461,
+        "cachedInputTokens": 1280,
+        "outputTokens": 197,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1658
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ]
+    },
+    {
+      "taskId": "T11",
+      "condition": "description",
+      "repetition": 3,
+      "status": "completed",
+      "taskSuccess": true,
+      "recoverySuccess": null,
+      "turns": 3,
+      "toolCalls": 2,
+      "usage": {
+        "inputTokens": 2260,
+        "cachedInputTokens": 2176,
+        "outputTokens": 212,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 2472
+      },
+      "toolCompliance": true,
+      "firstCallOutcome": "ok",
+      "strategy": "inspect-first",
+      "tracePath": [
+        "inspect-root:ok",
+        "task-query:ok"
+      ]
     }
   ],
   "cells": [
     {
       "taskId": "T9",
       "condition": "explicit",
-      "observations": 1,
-      "completed": 1,
-      "taskSuccess": 1,
-      "toolCompliance": 1,
+      "observations": 3,
+      "completed": 3,
+      "taskSuccess": 3,
+      "toolCompliance": 3,
       "recoverySuccess": 0,
       "recoveryApplicable": 0,
       "firstCallOutcomes": {
-        "no-call": 1
+        "no-call": 3
       },
       "strategies": {
-        "avoided-tool": 1
+        "avoided-tool": 3
       },
       "turns": {
         "min": 1,
@@ -275,26 +696,26 @@
         "mean": 0
       },
       "totalTokens": {
-        "min": 653,
+        "min": 650,
         "max": 653,
-        "mean": 653,
-        "sum": 653
+        "mean": 651,
+        "sum": 1953
       }
     },
     {
       "taskId": "T10",
       "condition": "description",
-      "observations": 1,
-      "completed": 1,
-      "taskSuccess": 1,
-      "toolCompliance": 1,
+      "observations": 3,
+      "completed": 3,
+      "taskSuccess": 3,
+      "toolCompliance": 3,
       "recoverySuccess": 0,
       "recoveryApplicable": 0,
       "firstCallOutcomes": {
-        "ok": 1
+        "ok": 3
       },
       "strategies": {
-        "one-shot-query": 1
+        "one-shot-query": 3
       },
       "turns": {
         "min": 2,
@@ -310,55 +731,57 @@
         "min": 1632,
         "max": 1632,
         "mean": 1632,
-        "sum": 1632
+        "sum": 4896
       }
     },
     {
       "taskId": "T11",
       "condition": "skill",
-      "observations": 1,
-      "completed": 1,
-      "taskSuccess": 1,
-      "toolCompliance": 1,
-      "recoverySuccess": 1,
-      "recoveryApplicable": 1,
+      "observations": 3,
+      "completed": 3,
+      "taskSuccess": 3,
+      "toolCompliance": 3,
+      "recoverySuccess": 2,
+      "recoveryApplicable": 2,
       "firstCallOutcomes": {
-        "JQ_RUNTIME_ERROR": 1
+        "JQ_RUNTIME_ERROR": 2,
+        "ok": 1
       },
       "strategies": {
-        "recovered-after-error": 1
+        "recovered-after-error": 2,
+        "one-shot-query": 1
       },
       "turns": {
         "min": 4,
-        "max": 4,
-        "mean": 4
+        "max": 5,
+        "mean": 4.33
       },
       "toolCalls": {
         "min": 3,
-        "max": 3,
-        "mean": 3
+        "max": 4,
+        "mean": 3.33
       },
       "totalTokens": {
         "min": 5384,
-        "max": 5384,
-        "mean": 5384,
-        "sum": 5384
+        "max": 6825,
+        "mean": 5864.33,
+        "sum": 17593
       }
     },
     {
       "taskId": "T9",
       "condition": "description",
-      "observations": 1,
-      "completed": 1,
-      "taskSuccess": 1,
+      "observations": 3,
+      "completed": 3,
+      "taskSuccess": 3,
       "toolCompliance": 0,
       "recoverySuccess": 0,
       "recoveryApplicable": 0,
       "firstCallOutcomes": {
-        "ok": 1
+        "ok": 3
       },
       "strategies": {
-        "unnecessary-tool": 1
+        "unnecessary-tool": 3
       },
       "turns": {
         "min": 2,
@@ -374,23 +797,23 @@
         "min": 1563,
         "max": 1563,
         "mean": 1563,
-        "sum": 1563
+        "sum": 4689
       }
     },
     {
       "taskId": "T10",
       "condition": "skill",
-      "observations": 1,
-      "completed": 1,
-      "taskSuccess": 1,
-      "toolCompliance": 1,
+      "observations": 3,
+      "completed": 3,
+      "taskSuccess": 3,
+      "toolCompliance": 3,
       "recoverySuccess": 0,
       "recoveryApplicable": 0,
       "firstCallOutcomes": {
-        "ok": 1
+        "ok": 3
       },
       "strategies": {
-        "one-shot-query": 1
+        "one-shot-query": 3
       },
       "turns": {
         "min": 2,
@@ -404,25 +827,25 @@
       },
       "totalTokens": {
         "min": 2469,
-        "max": 2469,
-        "mean": 2469,
-        "sum": 2469
+        "max": 2488,
+        "mean": 2481.67,
+        "sum": 7445
       }
     },
     {
       "taskId": "T11",
       "condition": "explicit",
-      "observations": 1,
-      "completed": 1,
-      "taskSuccess": 1,
-      "toolCompliance": 1,
+      "observations": 3,
+      "completed": 3,
+      "taskSuccess": 3,
+      "toolCompliance": 3,
       "recoverySuccess": 0,
       "recoveryApplicable": 0,
       "firstCallOutcomes": {
-        "ok": 1
+        "ok": 3
       },
       "strategies": {
-        "inspect-first": 1
+        "inspect-first": 3
       },
       "turns": {
         "min": 3,
@@ -436,57 +859,57 @@
       },
       "totalTokens": {
         "min": 2508,
-        "max": 2508,
-        "mean": 2508,
-        "sum": 2508
+        "max": 2510,
+        "mean": 2509.33,
+        "sum": 7528
       }
     },
     {
       "taskId": "T9",
       "condition": "skill",
-      "observations": 1,
-      "completed": 1,
-      "taskSuccess": 1,
+      "observations": 3,
+      "completed": 3,
+      "taskSuccess": 3,
       "toolCompliance": 0,
       "recoverySuccess": 0,
       "recoveryApplicable": 0,
       "firstCallOutcomes": {
-        "ok": 1
+        "ok": 3
       },
       "strategies": {
-        "unnecessary-tool": 1
+        "unnecessary-tool": 3
       },
       "turns": {
-        "min": 3,
+        "min": 2,
         "max": 3,
-        "mean": 3
+        "mean": 2.67
       },
       "toolCalls": {
-        "min": 2,
+        "min": 1,
         "max": 2,
-        "mean": 2
+        "mean": 1.67
       },
       "totalTokens": {
-        "min": 3676,
+        "min": 2285,
         "max": 3676,
-        "mean": 3676,
-        "sum": 3676
+        "mean": 3210,
+        "sum": 9630
       }
     },
     {
       "taskId": "T10",
       "condition": "explicit",
-      "observations": 1,
-      "completed": 1,
-      "taskSuccess": 1,
-      "toolCompliance": 1,
+      "observations": 3,
+      "completed": 3,
+      "taskSuccess": 3,
+      "toolCompliance": 3,
       "recoverySuccess": 0,
       "recoveryApplicable": 0,
       "firstCallOutcomes": {
-        "ok": 1
+        "ok": 3
       },
       "strategies": {
-        "one-shot-query": 1
+        "one-shot-query": 3
       },
       "turns": {
         "min": 2,
@@ -502,23 +925,23 @@
         "min": 1658,
         "max": 1658,
         "mean": 1658,
-        "sum": 1658
+        "sum": 4974
       }
     },
     {
       "taskId": "T11",
       "condition": "description",
-      "observations": 1,
-      "completed": 1,
-      "taskSuccess": 1,
-      "toolCompliance": 1,
+      "observations": 3,
+      "completed": 3,
+      "taskSuccess": 3,
+      "toolCompliance": 3,
       "recoverySuccess": 0,
       "recoveryApplicable": 0,
       "firstCallOutcomes": {
-        "ok": 1
+        "ok": 3
       },
       "strategies": {
-        "inspect-first": 1
+        "inspect-first": 3
       },
       "turns": {
         "min": 3,
@@ -532,9 +955,9 @@
       },
       "totalTokens": {
         "min": 2461,
-        "max": 2461,
-        "mean": 2461,
-        "sum": 2461
+        "max": 2472,
+        "mean": 2464.67,
+        "sum": 7394
       }
     }
   ]

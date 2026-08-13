@@ -97,21 +97,23 @@
 - T10 是可由一次复合 jq 查询完成的聚合问题，用于观察模型能否直接构造目标查询；
 - T11 不再强制制造语法错误，而是让模型面对容易误判的 JSON 根结构，用于区分“先检查再查询”和“查询失败后恢复”。
 
-我为诊断套件固定了交错执行顺序，使同一任务和同一条件不会连续出现，并继续使用 `deepseek-v4-flash`、温度 0、6 轮/5 次工具调用的预算。首轮 9 条真实观测全部完成且答案正确，但工具合规为 7/9：T9 的 `Explicit` 条件没有调用工具，而 `Description` 和 `Skill` 条件都进行了不必要的 jq 调用。T10 的三个条件都用一次目标查询完成任务。T11 的 `Explicit` 和 `Description` 条件先检查根结构再查询；`Skill` 条件先触发 `JQ_RUNTIME_ERROR`，随后检查结构并成功重试。
+我为诊断套件固定了交错执行顺序，使同一任务和同一条件不会连续出现，并继续使用 `deepseek-v4-flash`、温度 0、6 轮/5 次工具调用的预算。首轮出现策略和成本差异后，我保持配置不变，对完整九单元矩阵再执行两轮。与首轮合并后，每个“任务 × 条件”共有三次观测：
 
-| 任务 | 条件 | 策略 | 工具合规 | 回合 | 工具调用 | 总 Token |
-|---|---|---|---|---:|---:|---:|
-| T9 | `Explicit` | avoided-tool | 是 | 1 | 0 | 653 |
-| T9 | `Description` | unnecessary-tool | 否 | 2 | 1 | 1563 |
-| T9 | `Skill` | unnecessary-tool | 否 | 3 | 2 | 3676 |
-| T10 | `Explicit` | one-shot-query | 是 | 2 | 1 | 1658 |
-| T10 | `Description` | one-shot-query | 是 | 2 | 1 | 1632 |
-| T10 | `Skill` | one-shot-query | 是 | 2 | 1 | 2469 |
-| T11 | `Explicit` | inspect-first | 是 | 3 | 2 | 2508 |
-| T11 | `Description` | inspect-first | 是 | 3 | 2 | 2461 |
-| T11 | `Skill` | recovered-after-error | 是 | 4 | 3 | 5384 |
+| 任务 | 条件 | 任务成功 | 工具合规 | 策略 | 回合 min-max / mean | 工具调用 min-max / mean | Token min-max / mean |
+|---|---|---:|---:|---|---:|---:|---:|
+| T9 | `Explicit` | 3/3 | 3/3 | avoided-tool (x3) | 1-1 / 1 | 0-0 / 0 | 650-653 / 651 |
+| T9 | `Description` | 3/3 | 0/3 | unnecessary-tool (x3) | 2-2 / 2 | 1-1 / 1 | 1563-1563 / 1563 |
+| T9 | `Skill` | 3/3 | 0/3 | unnecessary-tool (x3) | 2-3 / 2.67 | 1-2 / 1.67 | 2285-3676 / 3210 |
+| T10 | `Explicit` | 3/3 | 3/3 | one-shot-query (x3) | 2-2 / 2 | 1-1 / 1 | 1658-1658 / 1658 |
+| T10 | `Description` | 3/3 | 3/3 | one-shot-query (x3) | 2-2 / 2 | 1-1 / 1 | 1632-1632 / 1632 |
+| T10 | `Skill` | 3/3 | 3/3 | one-shot-query (x3) | 2-2 / 2 | 1-1 / 1 | 2469-2488 / 2481.67 |
+| T11 | `Explicit` | 3/3 | 3/3 | inspect-first (x3) | 3-3 / 3 | 2-2 / 2 | 2508-2510 / 2509.33 |
+| T11 | `Description` | 3/3 | 3/3 | inspect-first (x3) | 3-3 / 3 | 2-2 / 2 | 2461-2472 / 2464.67 |
+| T11 | `Skill` | 3/3 | 3/3 | recovered-after-error (x2); one-shot-query (x1) | 4-5 / 4.33 | 3-4 / 3.33 | 5384-6825 / 5864.33 |
 
-这一批共使用 22 个模型回合、13 次工具调用和 22004 Token，其中输入 Token 为 20160、缓存命中输入 Token 为 16000、输出 Token 为 1844。当前结果说明三个条件在工具边界、过程策略和成本上出现了值得复核的差异，但每个单元格仍只有一次观测，不能据此判断这些差异是否稳定，更不能把差异单独归因于 Skill。
+新增的 18 条重复观测使用 44098 Token；27 条诊断观测合计使用 66102 Token、66 个模型回合和 39 次工具调用。全部答案正确，但工具合规只有 21/27，六次不合规都来自 T9 的 `Description` 和 `Skill` 条件。T9 的差异在三次观测中完全复现；T10 三种条件的过程一致；T11 的 `Explicit` 和 `Description` 均稳定采用错误预防，而 `Skill` 在两次真实错误后恢复与一次无错误路径之间波动。
+
+这些结果没有显示当前 Skill 在正确率上的优势。它增加了输入上下文，因此 T10 和 T11 的 Token 成本高于另外两种条件；在 T9 中，它也没有帮助模型识别工具不适用。样本仍然很小，每类行为只有一个任务，Explicit 还直接包含正确工具策略，所以这些数据只能描述当前任务集上的稳定现象，不能证明 Skill 的一般因果效应。
 
 ## Stage 2A 观察结果
 
@@ -134,7 +136,7 @@
 - `experiments/stage-2a/results/report.zh.md`：指标、代表案例与局限说明。
 - `experiments/stage-2b/results/observations.json`：pilot 与 calibrated 批次的脱敏结构化汇总；
 - `experiments/stage-2b/results/report.zh.md`：Stage 2B 配置、逐项指标、脱敏工具调用路径和解读边界。
-- `experiments/stage-2b/results/diagnostic-v1/observations.json`：9 条诊断观测及其工具合规、首次调用结果和过程策略；
+- `experiments/stage-2b/results/diagnostic-v1/observations.json`：27 条诊断观测及其工具合规、首次调用结果和过程策略；
 - `experiments/stage-2b/results/diagnostic-v1/report.zh.md`：诊断套件的逐项结果、成本与解读边界。
 
 原始 JSONL、stderr、临时工作区和校准记录位于本机 `.experiment-runs/`，不会提交到 GitHub。
@@ -276,6 +278,12 @@ npm run experiment:stage2b -- report --pilot-batch <pilot-batch-id> --calibrated
 npm run experiment:stage2b -- report --batch <diagnostic-batch-id>
 ```
 
+首轮批次与后续完整重复批次可以在离线校验配置一致后合并，重复编号会连续映射为 1、2、3：
+
+```bash
+npm run experiment:stage2b -- report --batch <initial-batch-id> --repeat-batch <repeat-batch-id>
+```
+
 诊断报告除答案正确性外，还给出工具合规、首次调用结果、归一化策略、脱敏调用路径、回合数、工具调用数和 Token 用量。恢复成功只在 T11 确实先观察到错误输出、之后又执行了成功重试时才计入；先检查结构并避免错误会归类为 `inspect-first`，不会被误算成错误恢复。
 
 ## 项目结构
@@ -299,8 +307,8 @@ docs/learning-notes/             前期学习材料
 
 ## 下一步
 
-我已完成 Stage 2B 的 pilot、预算校准、固定配置重复观测，以及首轮 `diagnostic-v1` 真实运行。版本 4 诊断报告把任务成功与过程行为分开：答案正确不代表工具选择合规，错误预防也不等同于错误后恢复。
+我已完成 Stage 2B 的 pilot、预算校准、固定配置重复观测，以及 `diagnostic-v1` 的三次完整观测。版本 4 报告把任务成功与过程行为分开：答案正确不代表工具选择合规，错误预防也不等同于错误后恢复。
 
-首轮诊断中，T9 的三个条件在是否调用不适用工具上不同，T11 的 `Skill` 条件也表现出不同于另外两个条件的恢复路径；对应回合数、工具调用数和 Token 成本均有差异。按照预先确定的决策规则，这些差异足以进入复核阶段。
+相同配置已经提供了足够一致的方向性信号，继续机械重复的边际信息有限。下一阶段应先在离线环境设计“工具适用性边界”对照：保留当前 Skill 作为基线，增加一份明确说明何时不应使用 jq 的边界型 Skill，并扩展成多组相互匹配的纯文本负例与 JSON 正例。实现和测试通过后，再用小规模真实批次判断 Skill 内容是否改善工具选择，而不是只增加提示长度和 Token 成本。
 
-下一步我将保持模型、温度、预算、任务、提示材料和交错顺序不变，对 `diagnostic-v1` 再执行两轮完整重复，使每个“任务 × 条件”达到三次观测。随后我会重新生成版本 4 报告，检查工具合规和策略差异是否复现，再决定是扩展任务覆盖，还是调整 Skill 内容进行更有针对性的对照；暂不同时改变温度或模型，以避免混入新的解释变量。
+这一步仍保持模型、温度、预算和执行器不变，只改变经过版本化的 Skill 内容与任务覆盖；多工具选择和随机温度实验留到边界型 Skill 的效果得到基本验证之后，避免同时引入过多解释变量。
