@@ -200,6 +200,31 @@ test('derives required and natural recovery without exposing private events', ()
   }), null);
 });
 
+test('requires a successful observed inspection before classifying inspect-first', () => {
+  const sameTurnEvents: Stage2bToolEvent[] = [{
+    type: 'function_call', callId: 'inspect', name: 'jq_query', arguments: '{"filter":"."}'
+  }, {
+    type: 'function_call', callId: 'target', name: 'jq_query', arguments: '{"filter":"[.payload[]]"}'
+  }, {
+    type: 'function_call_output', callId: 'inspect', output: '{"ok":true}'
+  }, {
+    type: 'function_call_output', callId: 'target', output: '{"ok":true}'
+  }];
+  assert.equal(analyzeStage2bProcess({
+    taskId: 'T11', taskSuccess: true, toolEvents: sameTurnEvents
+  }).strategy, 'unresolved');
+
+  const failedInspection = [
+    ...jqEvents('failed-inspect', '.', {
+      ok: false, error: { code: 'JQ_RUNTIME_ERROR' }
+    }),
+    ...jqEvents('retry-after-inspect', '[.payload[]]', { ok: true })
+  ];
+  assert.equal(analyzeStage2bProcess({
+    taskId: 'T11', taskSuccess: true, toolEvents: failedInspection
+  }).strategy, 'recovered-after-error');
+});
+
 test('requires a retry call to occur after the model observed an error output', () => {
   const sameTurnEvents: Stage2bToolEvent[] = [{
     type: 'function_call',
@@ -232,6 +257,20 @@ test('requires a retry call to occur after the model observed an error output', 
   assert.equal(evaluateStage2bRecovery({
     taskId: 'T11', status: 'completed', taskSuccess: true, toolEvents: sameTurnEvents
   }), false);
+
+  const requiredSameTurnEvents: Stage2bToolEvent[] = [{
+    type: 'function_call', callId: 'required-error', name: 'jq_query', arguments: '{"filter":"if"}'
+  }, {
+    type: 'function_call', callId: 'required-success', name: 'jq_query', arguments: '{"filter":"[.users[]]"}'
+  }, {
+    type: 'function_call_output', callId: 'required-error',
+    output: '{"ok":false,"error":{"code":"JQ_SYNTAX_ERROR"}}'
+  }, {
+    type: 'function_call_output', callId: 'required-success', output: '{"ok":true}'
+  }];
+  assert.equal(evaluateStage2bRecovery({
+    taskId: 'T7', status: 'completed', taskSuccess: true, toolEvents: requiredSameTurnEvents
+  }), false);
 });
 
 test('treats ambiguous or out-of-order call outputs as malformed', () => {
@@ -248,7 +287,7 @@ test('treats ambiguous or out-of-order call outputs as malformed', () => {
   }), {
     toolCompliance: true,
     firstCallOutcome: 'malformed-output',
-    strategy: 'inspect-first',
+    strategy: 'unresolved',
     tracePath: ['inspect-root:malformed-output']
   });
   assert.equal(evaluateStage2bRecovery({

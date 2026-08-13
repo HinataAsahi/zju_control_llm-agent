@@ -79,7 +79,7 @@ export function analyzeStage2bProcess(input: Stage2bProcessInput): Stage2bProces
     strategy = toolCallCount === 0 ? 'avoided-tool' : 'unnecessary-tool';
   } else if (!first) {
     strategy = 'unresolved';
-  } else if (first.action === 'inspect-root' && input.taskSuccess === true) {
+  } else if (hasSuccessfulTaskQueryAfterInspection(calls) && input.taskSuccess === true) {
     strategy = 'inspect-first';
   } else if (hasSuccessfulCallAfterError(calls) && input.taskSuccess === true) {
     strategy = 'recovered-after-error';
@@ -117,27 +117,23 @@ export function evaluateStage2bRecovery(input: Stage2bRecoveryInput): boolean | 
 
 function evaluateRequiredRecovery(input: Stage2bRecoveryInput): boolean | null {
   if (input.status !== 'completed') return null;
-  const calls = input.toolEvents.filter(event => event.type === 'function_call');
-  const first = calls[0];
-  if (!first || first.name !== 'jq_query') return false;
+  const rawCalls = input.toolEvents.filter(event => event.type === 'function_call');
+  const firstRawCall = rawCalls[0];
+  if (!firstRawCall || firstRawCall.name !== 'jq_query') return false;
 
-  const firstArguments = parseJsonObject(first.arguments);
-  const firstOutput = outputForCall(input.toolEvents, first.callId);
-  const firstResult = firstOutput === undefined ? undefined : parseJsonObject(firstOutput);
+  const firstArguments = parseJsonObject(firstRawCall.arguments);
+  const calls = classifyJqCalls(input.toolEvents);
+  const first = calls[0];
   if (
     firstArguments?.filter !== 'if'
-    || firstResult?.ok !== false
-    || !isRecord(firstResult.error)
-    || firstResult.error.code !== 'JQ_SYNTAX_ERROR'
+    || first?.outcome !== 'JQ_SYNTAX_ERROR'
+    || first.result !== 'error'
+    || first.outputIndex === undefined
   ) {
     return false;
   }
 
-  return calls.slice(1).some(call => {
-    if (call.name !== 'jq_query') return false;
-    const output = outputForCall(input.toolEvents, call.callId);
-    return output === undefined ? false : parseJsonObject(output)?.ok === true;
-  });
+  return hasSuccessfulCallAfter(calls, first.outputIndex);
 }
 
 function classifyJqCalls(events: readonly Stage2bToolEvent[]): ClassifiedCall[] {
@@ -200,11 +196,29 @@ function hasSuccessfulCallAfterError(calls: readonly ClassifiedCall[]): boolean 
   for (const error of calls) {
     const errorOutputIndex = error.outputIndex;
     if (error.result !== 'error' || errorOutputIndex === undefined) continue;
-    if (calls.some(success =>
-      success.result === 'ok' && success.callIndex > errorOutputIndex
-    )) return true;
+    if (hasSuccessfulCallAfter(calls, errorOutputIndex)) return true;
   }
   return false;
+}
+
+function hasSuccessfulTaskQueryAfterInspection(calls: readonly ClassifiedCall[]): boolean {
+  const inspection = calls[0];
+  if (
+    !inspection
+    || inspection.action !== 'inspect-root'
+    || inspection.result !== 'ok'
+    || inspection.outputIndex === undefined
+  ) return false;
+  const inspectionOutputIndex = inspection.outputIndex;
+  return calls.some(call =>
+    call.action === 'task-query'
+    && call.result === 'ok'
+    && call.callIndex > inspectionOutputIndex
+  );
+}
+
+function hasSuccessfulCallAfter(calls: readonly ClassifiedCall[], outputIndex: number): boolean {
+  return calls.some(call => call.result === 'ok' && call.callIndex > outputIndex);
 }
 
 function groupEventPositions(
@@ -223,12 +237,6 @@ function groupEventPositions(
 
 function extractOutput(event: Stage2bToolEvent | undefined): string | undefined {
   return event?.type === 'function_call_output' ? event.output : undefined;
-}
-
-function outputForCall(events: readonly Stage2bToolEvent[], callId: string): string | undefined {
-  return events.find((event): event is Extract<Stage2bToolEvent, { type: 'function_call_output' }> =>
-    event.type === 'function_call_output' && event.callId === callId
-  )?.output;
 }
 
 function isJqCall(
