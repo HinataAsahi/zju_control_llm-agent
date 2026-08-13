@@ -255,3 +255,30 @@ test('treats ambiguous or out-of-order call outputs as malformed', () => {
     taskId: 'T11', status: 'completed', taskSuccess: true, toolEvents: duplicateIdEvents
   }), null);
 });
+
+test('rejects duplicate function call IDs as ambiguous', () => {
+  const duplicateCallEvents: Stage2bToolEvent[] = [{
+    type: 'function_call', callId: 'duplicate-call', name: 'jq_query', arguments: '{"filter":"."}'
+  }, {
+    type: 'function_call',
+    callId: 'duplicate-call',
+    name: 'jq_query',
+    arguments: '{"filter":"[.payload[]]"}'
+  }, {
+    type: 'function_call_output',
+    callId: 'duplicate-call',
+    output: '{"ok":false,"error":{"code":"JQ_RUNTIME_ERROR"}}'
+  }];
+
+  assert.deepEqual(analyzeStage2bProcess({
+    taskId: 'T11', taskSuccess: false, toolEvents: duplicateCallEvents
+  }), {
+    toolCompliance: true,
+    firstCallOutcome: 'malformed-output',
+    strategy: 'unresolved',
+    tracePath: ['inspect-root:malformed-output', 'task-query:malformed-output']
+  });
+  assert.equal(evaluateStage2bRecovery({
+    taskId: 'T11', status: 'completed', taskSuccess: false, toolEvents: duplicateCallEvents
+  }), null);
+});
