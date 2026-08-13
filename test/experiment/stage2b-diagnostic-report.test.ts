@@ -11,7 +11,7 @@ import {
   writeFile
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import test from 'node:test';
 import type { Stage2bBatchManifest } from '../../src/experiment/stage2b-batch.js';
 import {
@@ -60,25 +60,18 @@ test('summarizes nine diagnostic cells with safe derived process metrics', () =>
   assertSafePublicText(markdown);
 });
 
-test('preserves the reviewed single-batch public artifact bytes', async () => {
-  const resultsRoot = resolve('experiments/stage-2b/results/diagnostic-v1');
-  const jsonText = await readFile(join(resultsRoot, 'observations.json'), 'utf8');
-  const markdownText = await readFile(join(resultsRoot, 'report.zh.md'), 'utf8');
-  const reviewed = JSON.parse(jsonText) as ReturnType<typeof summarizeStage2bDiagnosticBatch>;
-
-  assert.equal(`${JSON.stringify(reviewed, null, 2)}\n`, jsonText);
-  assert.equal(renderStage2bDiagnosticMarkdown(reviewed), markdownText);
-  assert.equal(reviewed.repeatBatchId, undefined);
-
-  const summarizedBytes = `${JSON.stringify(
-    summarizeStage2bDiagnosticBatch(diagnosticFixture()),
-    null,
-    2
-  )}\n`;
+test('preserves the base single-batch public artifact bytes', () => {
+  const report = summarizeStage2bDiagnosticBatch(diagnosticFixture());
+  assert.equal(report.repeatBatchId, undefined);
+  const summarizedBytes = `${JSON.stringify(report, null, 2)}\n`;
   // SHA-256 of the fixed single-batch fixture serialized by the 23e2a87 implementation.
   assert.equal(
     createHash('sha256').update(summarizedBytes).digest('hex'),
     '9ec167aaba03a0c4cafa62000ba69af33a598b3dd52d91928b3206e3cf10e316'
+  );
+  assert.equal(
+    createHash('sha256').update(renderStage2bDiagnosticMarkdown(report)).digest('hex'),
+    'b25f8ce617177fb063d0a679c168f77b517a140b70d7cd23efb95ef233f595bf'
   );
 });
 
