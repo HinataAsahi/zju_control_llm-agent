@@ -4,7 +4,8 @@ import type { ExperimentCondition } from './schema.js';
 import {
   expandStage2bSuite,
   getStage2bSuite,
-  type Stage2bSuiteId
+  type Stage2bSuiteId,
+  type Stage2bTreatment
 } from './stage2b-suite.js';
 
 export const STAGE2B_PLAN_MAX_REPETITIONS = 100;
@@ -17,11 +18,13 @@ export const STAGE2B_PLAN_CONDITIONS: readonly ExperimentCondition[] = [
 
 export type Stage2bSuiteTaskId<Suite extends Stage2bSuiteId> = Suite extends 'baseline-v1'
   ? 'T2' | 'T7'
-  : 'T9' | 'T10' | 'T11';
+  : Suite extends 'diagnostic-v1'
+    ? 'T9' | 'T10' | 'T11'
+    : 'T12' | 'T13' | 'T14' | 'T15' | 'T16' | 'T17';
 
 export interface Stage2bPlanRun<Suite extends Stage2bSuiteId = Stage2bSuiteId> {
   taskId: Stage2bSuiteTaskId<Suite>;
-  condition: ExperimentCondition;
+  condition: Stage2bTreatment;
   repetition: number;
 }
 
@@ -30,7 +33,7 @@ export interface Stage2bPlan<Suite extends Stage2bSuiteId = Stage2bSuiteId> {
   mode: 'plan';
   suite: Suite;
   tasks: Array<Stage2bSuiteTaskId<Suite>>;
-  conditions: ExperimentCondition[];
+  conditions: Stage2bTreatment[];
   repetitions: number;
   totalRuns: number;
   requiresApiKey: false;
@@ -62,7 +65,7 @@ export function createStage2bPlan(
     mode: 'plan',
     suite,
     tasks: [...selectedSuite.taskIds] as Stage2bSuiteTaskId<Stage2bSuiteId>[],
-    conditions: [...STAGE2B_PLAN_CONDITIONS],
+    conditions: [...new Set(runs.map(run => run.condition))],
     repetitions,
     totalRuns: runs.length,
     requiresApiKey: false,

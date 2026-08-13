@@ -71,7 +71,9 @@ test('accepts every Stage 2B representative task ID', async t => {
   const root = await mkdtemp(join(tmpdir(), 'stage2b-record-'));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  for (const taskId of ['T1', 'T2', 'T6', 'T7'] as const) {
+  for (const taskId of [
+    'T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17'
+  ] as const) {
     const value: Stage2bRecord = {
       ...record(`stage2b-${taskId}-explicit-test`),
       taskId
@@ -85,10 +87,17 @@ test('accepts every Stage 2B experiment condition', async t => {
   const root = await mkdtemp(join(tmpdir(), 'stage2b-record-'));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  for (const condition of ['explicit', 'description', 'skill'] as const) {
+  for (const condition of ['explicit', 'description', 'skill', 'skill-v1', 'skill-v2'] as const) {
     const value: Stage2bRecord = {
       ...record(`stage2b-T1-${condition}-test`),
-      condition
+      condition,
+      ...(condition === 'skill-v1' || condition === 'skill-v2' ? {
+        version: 2 as const,
+        skill: {
+          version: condition === 'skill-v1' ? 'v1' as const : 'v2' as const,
+          sha256: 'a'.repeat(64)
+        }
+      } : {})
     };
     const path = await writeStage2bRecord(root, value);
     assert.equal((JSON.parse(await readFile(path, 'utf8')) as Stage2bRecord).condition, condition);

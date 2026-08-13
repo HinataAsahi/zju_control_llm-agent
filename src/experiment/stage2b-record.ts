@@ -7,8 +7,9 @@ import type {
   AgentRunStatus
 } from '../agent/agent-loop.js';
 import type { ModelHistoryItem, ModelUsage } from '../agent/model-client.js';
-import type { ExperimentAnswer, ExperimentCondition } from './schema.js';
-import type { Stage2bTaskId } from './stage2b-suite.js';
+import type { ExperimentAnswer } from './schema.js';
+import type { Stage2bTaskId, Stage2bTreatment } from './stage2b-suite.js';
+import type { Stage2bSkillIdentity } from './stage2b-treatment.js';
 
 export type { Stage2bTaskId } from './stage2b-suite.js';
 
@@ -19,7 +20,7 @@ export type Stage2bToolEvent = Extract<
 
 export function createStage2bRunId(
   taskId: Stage2bTaskId,
-  condition: ExperimentCondition,
+  condition: Stage2bTreatment,
   date: Date
 ): string {
   const timestamp = date.toISOString().replace(/[-:.]/g, '').replace('Z', 'Z');
@@ -31,7 +32,7 @@ export function isStage2bRunId(runId: string): boolean {
 }
 
 export interface Stage2bRecord {
-  version: 1;
+  version: 1 | 2;
   runId: string;
   startedAt: string;
   provider: 'deepseek';
@@ -41,7 +42,8 @@ export interface Stage2bRecord {
     temperature: number | null;
   };
   taskId: Stage2bTaskId;
-  condition: ExperimentCondition;
+  condition: Stage2bTreatment;
+  skill?: Stage2bSkillIdentity | null;
   status: AgentRunStatus;
   taskSuccess: boolean | null;
   recoverySuccess: boolean | null;

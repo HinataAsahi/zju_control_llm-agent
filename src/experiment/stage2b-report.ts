@@ -171,8 +171,13 @@ const runErrorSchema = z.strictObject({
   diagnostics: z.record(z.string(), z.unknown()).optional()
 });
 
+const skillIdentitySchema = z.strictObject({
+  version: z.enum(['v1', 'v2']),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/)
+});
+
 const stage2bPrivateRecordSchema = z.strictObject({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   runId: z.string().refine(isStage2bRunId),
   startedAt: z.string().datetime({ offset: false }),
   provider: z.literal('deepseek'),
@@ -182,7 +187,8 @@ const stage2bPrivateRecordSchema = z.strictObject({
     temperature: z.number().min(0).max(2).nullable()
   }).default({ temperature: null }),
   taskId: z.enum(STAGE2B_TASK_IDS),
-  condition: z.enum(['explicit', 'description', 'skill']),
+  condition: z.enum(['explicit', 'description', 'skill', 'skill-v1', 'skill-v2']),
+  skill: skillIdentitySchema.nullable().optional(),
   status: z.enum([
     'completed',
     'infrastructure-error',
@@ -200,6 +206,24 @@ const stage2bPrivateRecordSchema = z.strictObject({
   usage: usageSchema,
   durationMs: z.number().nonnegative(),
   error: runErrorSchema.optional()
+}).superRefine((record, context) => {
+  if (record.version === 1 && record.skill !== undefined) {
+    context.addIssue({ code: 'custom', path: ['skill'], message: 'Version 1 records cannot include skill metadata.' });
+  }
+  if (record.version === 1 && (record.condition === 'skill-v1' || record.condition === 'skill-v2')) {
+    context.addIssue({ code: 'custom', path: ['condition'], message: 'Versioned skill conditions require a version 2 record.' });
+  }
+  if (record.version === 2 && record.skill === undefined) {
+    context.addIssue({ code: 'custom', path: ['skill'], message: 'Version 2 records require skill metadata.' });
+  }
+  const expectedVersion = record.condition === 'skill-v1'
+    ? 'v1'
+    : record.condition === 'skill-v2'
+      ? 'v2'
+      : null;
+  if (record.version === 2 && (record.skill?.version ?? null) !== expectedVersion) {
+    context.addIssue({ code: 'custom', path: ['skill'], message: 'Record skill metadata does not match its condition.' });
+  }
 });
 
 const publicJqErrorCodes = new Set([
@@ -488,7 +512,7 @@ function publicRun(
   }
   return {
     taskId: run.taskId,
-    condition: run.condition,
+    condition: run.condition as Stage2bPublicRun['condition'],
     repetition: run.repetition,
     status: record.status,
     taskSuccess: record.taskSuccess,
@@ -674,6 +698,15 @@ export async function readStage2bReportRecord(
   repositoryRoot: string,
   runId: string
 ): Promise<Stage2bReportRecord> {
+  const privateRecord = await readStage2bPrivateRecord(repositoryRoot, runId);
+  const record = reportRecordSchema.parse(projectReportRecord(privateRecord));
+  return record;
+}
+
+export async function readStage2bPrivateRecord(
+  repositoryRoot: string,
+  runId: string
+): Promise<Stage2bRecord> {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(runId) || runId === '.' || runId === '..') {
     throw new Error('Unsafe Stage 2B record run ID.');
   }
@@ -685,9 +718,8 @@ export async function readStage2bReportRecord(
   const text = await readRegularText(join(recordRoot, 'record.json'));
   const parsed: unknown = JSON.parse(text);
   const privateRecord = stage2bPrivateRecordSchema.parse(parsed) as Stage2bRecord;
-  const record = reportRecordSchema.parse(projectReportRecord(privateRecord));
-  if (record.runId !== runId) throw new Error('Stage 2B record ID does not match its path.');
-  return record;
+  if (privateRecord.runId !== runId) throw new Error('Stage 2B record ID does not match its path.');
+  return privateRecord;
 }
 
 function projectReportRecord(record: Stage2bRecord): Stage2bReportRecord {
@@ -698,7 +730,7 @@ function projectReportRecord(record: Stage2bRecord): Stage2bReportRecord {
     thinking: record.thinking,
     sampling: { ...record.sampling },
     taskId: record.taskId,
-    condition: record.condition,
+    condition: record.condition as Stage2bReportRecord['condition'],
     status: record.status,
     taskSuccess: record.taskSuccess,
     recoverySuccess: record.recoverySuccess,

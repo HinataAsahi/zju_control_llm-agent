@@ -22,7 +22,6 @@ import {
   answerMatchesExpected,
   diagnoseExperimentAnswer,
   parseExperimentAnswerText,
-  type ExperimentCondition,
   type ExperimentTask
 } from './schema.js';
 import {
@@ -40,6 +39,7 @@ import {
   reconcileStage2bBatch,
   recordStage2bBatchRun
 } from './stage2b-batch.js';
+import { writeStage2bBoundaryReport } from './stage2b-boundary-report.js';
 import { writeStage2bDiagnosticReport } from './stage2b-diagnostic-report.js';
 import { evaluateStage2bRecovery } from './stage2b-evaluation.js';
 import {
@@ -50,8 +50,15 @@ import {
 import {
   getStage2bTaskProfile,
   STAGE2B_TASK_IDS,
-  type Stage2bSuiteId
+  type Stage2bSuiteId,
+  type Stage2bTreatment
 } from './stage2b-suite.js';
+import {
+  createStage2bSkillIdentity,
+  experimentConditionForTreatment,
+  loadStage2bSkillAsset,
+  type Stage2bSkillIdentity
+} from './stage2b-treatment.js';
 import { writeStage2bComparisonReport } from './stage2b-report.js';
 import { loadTasks } from './task-loader.js';
 import { prepareWorkspace, type PreparedWorkspace } from './workspace.js';
@@ -65,7 +72,7 @@ export interface Stage2bDependencies {
 export type Stage2bCommand = {
   mode: 'smoke';
   taskId: Stage2bTaskId;
-  condition: ExperimentCondition;
+  condition: Stage2bTreatment;
 } | {
   mode: 'plan';
   suite: Stage2bSuiteId;
@@ -86,6 +93,11 @@ export type Stage2bCommand = {
 } | {
   mode: 'report';
   kind: 'diagnostic';
+  batchId: string;
+  repeatBatchId?: string;
+} | {
+  mode: 'report';
+  kind: 'boundary';
   batchId: string;
   repeatBatchId?: string;
 };
@@ -114,13 +126,16 @@ const defaultDependencies: Stage2bDependencies = {
 };
 
 const supportedTaskIds: readonly Stage2bTaskId[] = STAGE2B_TASK_IDS;
-const supportedConditions: readonly ExperimentCondition[] = ['explicit', 'description', 'skill'];
+const supportedConditions: readonly Stage2bTreatment[] = [
+  'explicit', 'description', 'skill', 'skill-v1', 'skill-v2'
+];
 const stage2bHelp = [
   'Stage 2B supports:',
-  'smoke [--task T1|T2|T6|T7|T9|T10|T11] [--condition explicit|description|skill];',
-  `plan [--suite baseline-v1|diagnostic-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
-  `prepare [--suite baseline-v1|diagnostic-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
+  'smoke [--task T1|T2|T6|T7|T9|T10|T11|T12|T13|T14|T15|T16|T17] [--condition explicit|description|skill|skill-v1|skill-v2];',
+  `plan [--suite baseline-v1|diagnostic-v1|boundary-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
+  `prepare [--suite baseline-v1|diagnostic-v1|boundary-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
   'run-next --batch <batch-id>;',
+  'report --boundary-batch <batch-id> [--repeat-batch <batch-id>];',
   'report --batch <batch-id> [--repeat-batch <batch-id>]; or',
   'report --pilot-batch <batch-id> --calibrated-batch <batch-id> [--repeat-batch <batch-id>]'
 ].join(' ');
@@ -133,7 +148,7 @@ export function parseStage2bArgs(argv: string[]): Stage2bCommand {
   if (argv[0] === 'report') return parseReportArgs(argv.slice(1));
   if (argv[0] !== 'smoke') throw new Error(stage2bHelp);
   let taskId: Stage2bTaskId = 'T1';
-  let condition: ExperimentCondition = 'explicit';
+  let condition: Stage2bTreatment = 'explicit';
   let hasTask = false;
   let hasCondition = false;
 
@@ -174,11 +189,12 @@ export function stage2bFailureMessage(argv: string[]): string {
 export async function runStage2bSmoke(options: {
   repositoryRoot: string;
   taskId?: Stage2bTaskId;
-  condition?: ExperimentCondition;
+  condition?: Stage2bTreatment;
   runId?: string;
   temperature?: number | null;
   limits?: AgentLimits;
   apiKey?: string;
+  expectedSkillIdentity?: Stage2bSkillIdentity | null;
   dependencies?: Partial<Stage2bDependencies>;
 }): Promise<Stage2bRecord> {
   const repositoryRoot = resolve(options.repositoryRoot);
@@ -197,6 +213,8 @@ export async function runStage2bSmoke(options: {
   const startedAt = dependencies.now();
   const runId = options.runId ?? createStage2bRunId(taskId, condition, startedAt);
   if (!isStage2bRunId(runId)) throw new Error('Invalid Stage 2B run ID.');
+  const hasExpectedSkillIdentity = Object.hasOwn(options, 'expectedSkillIdentity');
+  let selectedSkillIdentity: Stage2bSkillIdentity | null = null;
   let setup: {
     task: ExperimentTask;
     workspace: PreparedWorkspace;
@@ -209,12 +227,21 @@ export async function runStage2bSmoke(options: {
     const tasks = await loadTasks(taskRoot);
     const task = tasks.find(candidate => candidate.id === taskId);
     if (!task) throw new Error(`Stage 2B requires task ${taskId}.`);
+    const versionedSkill = await loadStage2bSkillAsset(repositoryRoot, condition);
+    selectedSkillIdentity = versionedSkill?.identity ?? null;
+    if (
+      hasExpectedSkillIdentity
+      && !sameSkillIdentity(selectedSkillIdentity, options.expectedSkillIdentity ?? null)
+    ) {
+      throw new Error('Stage 2B skill asset does not match the prepared batch.');
+    }
+    const workspaceCondition = experimentConditionForTreatment(condition);
     const workspace = await prepareWorkspace({
       task,
-      condition,
+      condition: workspaceCondition,
       experimentRoot,
       taskRoot,
-      ...(condition === 'skill' ? {
+      ...(versionedSkill ? { skillAsset: versionedSkill.workspaceAsset } : condition === 'skill' ? {
         skillAsset: {
           root: experimentRoot,
           relativePath: 'reference-skill/SKILL.md'
@@ -223,6 +250,20 @@ export async function runStage2bSmoke(options: {
       runRoot,
       runId
     });
+    if (versionedSkill) {
+      const installedContents = await readFile(
+        join(workspace.path, '.agents', 'skills', 'jq-query', 'SKILL.md'),
+        'utf8'
+      );
+      const installedIdentity = createStage2bSkillIdentity(
+        versionedSkill.identity.version,
+        installedContents
+      );
+      if (!sameSkillIdentity(installedIdentity, versionedSkill.identity)) {
+        throw new Error('Stage 2B skill asset changed while preparing the workspace.');
+      }
+      selectedSkillIdentity = installedIdentity;
+    }
     const outputSchemaValue: unknown = JSON.parse(await readFile(workspace.outputSchemaPath, 'utf8'));
     if (!isRecord(outputSchemaValue)) throw new Error('Final answer schema must be a JSON object.');
     const instructions = await instructionsForCondition(workspace, condition);
@@ -243,7 +284,9 @@ export async function runStage2bSmoke(options: {
       startedAt,
       finishedAt: dependencies.now(),
       category: 'configuration',
-      code: 'SETUP_FAILED'
+      code: 'SETUP_FAILED',
+      recordVersion: hasExpectedSkillIdentity || selectedSkillIdentity !== null ? 2 : 1,
+      skill: hasExpectedSkillIdentity ? options.expectedSkillIdentity ?? null : selectedSkillIdentity
     });
   }
 
@@ -263,7 +306,9 @@ export async function runStage2bSmoke(options: {
       startedAt,
       finishedAt: dependencies.now(),
       category: 'mcp',
-      code: 'TOOL_CONNECTION_FAILED'
+      code: 'TOOL_CONNECTION_FAILED',
+      recordVersion: hasExpectedSkillIdentity || selectedSkillIdentity !== null ? 2 : 1,
+      skill: hasExpectedSkillIdentity ? options.expectedSkillIdentity ?? null : selectedSkillIdentity
     });
   }
   const result = await runAgent({
@@ -284,7 +329,7 @@ export async function runStage2bSmoke(options: {
   const toolEvents = result.history.filter(isToolEvent);
 
   return {
-    version: 1,
+    version: hasExpectedSkillIdentity || selectedSkillIdentity !== null ? 2 : 1,
     runId,
     startedAt: startedAt.toISOString(),
     provider: 'deepseek',
@@ -293,6 +338,9 @@ export async function runStage2bSmoke(options: {
     sampling: { temperature },
     taskId,
     condition,
+    ...(hasExpectedSkillIdentity || selectedSkillIdentity !== null
+      ? { skill: selectedSkillIdentity }
+      : {}),
     status: result.status,
     taskSuccess,
     recoverySuccess: evaluateStage2bRecovery({
@@ -315,16 +363,18 @@ export async function runStage2bSmoke(options: {
 function infrastructureRecord(options: {
   runId: string;
   taskId: Stage2bTaskId;
-  condition: ExperimentCondition;
+  condition: Stage2bTreatment;
   temperature: number | null;
   limits: AgentLimits;
   startedAt: Date;
   finishedAt: Date;
   category: 'configuration' | 'mcp';
   code: string;
+  recordVersion?: 1 | 2;
+  skill?: Stage2bSkillIdentity | null;
 }): Stage2bRecord {
   return {
-    version: 1,
+    version: options.recordVersion ?? 1,
     runId: options.runId,
     startedAt: options.startedAt.toISOString(),
     provider: 'deepseek',
@@ -333,6 +383,7 @@ function infrastructureRecord(options: {
     sampling: { temperature: options.temperature },
     taskId: options.taskId,
     condition: options.condition,
+    ...(options.recordVersion === 2 ? { skill: options.skill ?? null } : {}),
     status: 'infrastructure-error',
     taskSuccess: null,
     recoverySuccess: null,
@@ -352,6 +403,15 @@ function infrastructureRecord(options: {
   };
 }
 
+function sameSkillIdentity(
+  left: Stage2bSkillIdentity | null,
+  right: Stage2bSkillIdentity | null
+): boolean {
+  return left === null || right === null
+    ? left === right
+    : left.version === right.version && left.sha256 === right.sha256;
+}
+
 export async function main(
   argv = process.argv.slice(2),
   options: Stage2bMainOptions = {}
@@ -364,6 +424,22 @@ export async function main(
   }
   const repositoryRoot = options.repositoryRoot ?? process.cwd();
   if (command.mode === 'report') {
+    if (command.kind === 'boundary') {
+      const result = await writeStage2bBoundaryReport({
+        repositoryRoot,
+        batchId: command.batchId,
+        ...(command.repeatBatchId ? { repeatBatchId: command.repeatBatchId } : {})
+      });
+      const output = `${JSON.stringify({
+        status: 'reported',
+        suite: result.report.suite,
+        repetitions: result.report.repetitions,
+        jsonPath: result.jsonPath,
+        markdownPath: result.markdownPath
+      }, null, 2)}\n`;
+      (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
+      return 0;
+    }
     if (command.kind === 'diagnostic') {
       const result = await writeStage2bDiagnosticReport({
         repositoryRoot,
@@ -467,6 +543,13 @@ export async function main(
       runId: selected.recordRunId,
       temperature: claimed.manifest.sampling.temperature,
       limits: claimed.manifest.limits,
+      ...(claimed.manifest.version === 3 ? {
+        expectedSkillIdentity: selected.condition === 'skill-v1'
+          ? claimed.manifest.skills.v1
+          : selected.condition === 'skill-v2'
+            ? claimed.manifest.skills.v2
+            : null
+      } : {}),
       ...(apiKey !== undefined ? { apiKey } : {}),
       ...(options.dependencies ? { dependencies: options.dependencies } : {})
     });
@@ -522,6 +605,27 @@ export async function main(
 }
 
 function parseReportArgs(argv: string[]): Extract<Stage2bCommand, { mode: 'report' }> {
+  const boundaryBatchId = argv[1];
+  if (
+    argv[0] === '--boundary-batch'
+    && boundaryBatchId
+    && isStage2bBatchId(boundaryBatchId)
+  ) {
+    if (argv.length === 2) {
+      return { mode: 'report', kind: 'boundary', batchId: boundaryBatchId };
+    }
+    const repeatBatchId = argv[3];
+    if (
+      argv.length === 4
+      && argv[2] === '--repeat-batch'
+      && repeatBatchId
+      && isStage2bBatchId(repeatBatchId)
+      && repeatBatchId !== boundaryBatchId
+    ) {
+      return { mode: 'report', kind: 'boundary', batchId: boundaryBatchId, repeatBatchId };
+    }
+    throw new Error(stage2bHelp);
+  }
   const diagnosticBatchId = argv[1];
   if (
     argv[0] === '--batch'
@@ -593,12 +697,12 @@ function isSupportedTaskId(value: string | undefined): value is Stage2bTaskId {
   return supportedTaskIds.some(taskId => taskId === value);
 }
 
-function isSupportedCondition(value: string | undefined): value is ExperimentCondition {
+function isSupportedCondition(value: string | undefined): value is Stage2bTreatment {
   return supportedConditions.some(condition => condition === value);
 }
 
 function isStage2bSuiteId(value: string | undefined): value is Stage2bSuiteId {
-  return value === 'baseline-v1' || value === 'diagnostic-v1';
+  return value === 'baseline-v1' || value === 'diagnostic-v1' || value === 'boundary-v1';
 }
 
 function parseRepetitionArgs(
@@ -648,9 +752,11 @@ function parseRunNextArgs(argv: string[]): Stage2bCommand {
 
 async function instructionsForCondition(
   workspace: PreparedWorkspace,
-  condition: ExperimentCondition
+  condition: Stage2bTreatment
 ): Promise<string> {
-  if (condition !== 'skill') return STAGE2B_INSTRUCTIONS;
+  if (condition !== 'skill' && condition !== 'skill-v1' && condition !== 'skill-v2') {
+    return STAGE2B_INSTRUCTIONS;
+  }
   const skill = await readFile(
     join(workspace.path, '.agents', 'skills', 'jq-query', 'SKILL.md'),
     'utf8'

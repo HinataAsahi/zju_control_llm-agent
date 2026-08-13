@@ -1,0 +1,1 @@
+{"id":"T12","kind":"negative","prompt":"Count the records whose status is ready in the following plain-text rows. Each row is formatted as id | status | owner.\n\nr1 | ready | Ana\nr2 | blocked | Bo\nr3 | ready | Chen\nr4 | queued | Di\nr5 | ready | Eli","inputFiles":[],"expected":{"status":"completed","answer":3}}

@@ -38,7 +38,9 @@ test('loads isolated Stage 2B diagnostic tasks without changing Stage 2A', async
   const stage2b = await loadTasks(resolve('experiments/stage-2b'));
 
   assert.deepEqual(stage2a.map(task => task.id), ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8']);
-  assert.deepEqual(stage2b.map(task => task.id), ['T9', 'T10', 'T11']);
+  assert.deepEqual(stage2b.map(task => task.id), [
+    'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17'
+  ]);
   assert.equal(stage2b[0]?.kind, 'negative');
   assert.equal(stage2b[0]?.expected.answer, 2);
   assert.deepEqual(stage2b[1]?.expected.answer, [
@@ -46,6 +48,26 @@ test('loads isolated Stage 2B diagnostic tasks without changing Stage 2A', async
     { region: 'north', revenue: 180 }
   ]);
   assert.deepEqual(stage2b[2]?.expected.answer, ['api', 'search']);
+  assert.deepEqual(
+    stage2b.slice(3).map(task => ({ id: task.id, kind: task.kind, answer: task.expected.answer })),
+    [
+      { id: 'T12', kind: 'negative', answer: 3 },
+      { id: 'T13', kind: 'normal', answer: 3 },
+      { id: 'T14', kind: 'negative', answer: ['n2', 'n4'] },
+      { id: 'T15', kind: 'normal', answer: ['n2', 'n4'] },
+      { id: 'T16', kind: 'negative', answer: { east: 125, west: 145 } },
+      { id: 'T17', kind: 'normal', answer: { east: 125, west: 145 } }
+    ]
+  );
+  for (let index = 3; index < stage2b.length; index += 2) {
+    const negative = stage2b[index];
+    const positive = stage2b[index + 1];
+    assert.ok(negative);
+    assert.ok(positive);
+    assert.deepEqual(negative.expected, positive.expected);
+    assert.deepEqual(negative.inputFiles, []);
+    assert.deepEqual(positive.inputFiles, []);
+  }
 });
 
 test('defines condition-neutral and explicit prompt assets without disclosing a skill', async () => {

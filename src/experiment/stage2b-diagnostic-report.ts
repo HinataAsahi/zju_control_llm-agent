@@ -344,7 +344,7 @@ function diagnosticRun(
   }
   return {
     taskId: run.taskId,
-    condition: run.condition,
+    condition: run.condition as Stage2bDiagnosticPublicRun['condition'],
     repetition: run.repetition,
     status: record.status,
     taskSuccess: record.taskSuccess,

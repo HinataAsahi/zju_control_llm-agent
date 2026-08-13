@@ -47,15 +47,51 @@ test('preserves baseline-v1 cell-major ordering across repetitions', () => {
   ]);
 });
 
+test('expands boundary-v1 as three balanced treatment blocks', () => {
+  assert.deepEqual(expandStage2bSuite('boundary-v1', 1), [
+    { taskId: 'T12', condition: 'description', repetition: 1 },
+    { taskId: 'T13', condition: 'skill-v1', repetition: 1 },
+    { taskId: 'T14', condition: 'skill-v2', repetition: 1 },
+    { taskId: 'T15', condition: 'description', repetition: 1 },
+    { taskId: 'T16', condition: 'skill-v1', repetition: 1 },
+    { taskId: 'T17', condition: 'skill-v2', repetition: 1 },
+    { taskId: 'T12', condition: 'skill-v1', repetition: 1 },
+    { taskId: 'T13', condition: 'skill-v2', repetition: 1 },
+    { taskId: 'T14', condition: 'description', repetition: 1 },
+    { taskId: 'T15', condition: 'skill-v1', repetition: 1 },
+    { taskId: 'T16', condition: 'skill-v2', repetition: 1 },
+    { taskId: 'T17', condition: 'description', repetition: 1 },
+    { taskId: 'T12', condition: 'skill-v2', repetition: 1 },
+    { taskId: 'T13', condition: 'description', repetition: 1 },
+    { taskId: 'T14', condition: 'skill-v1', repetition: 1 },
+    { taskId: 'T15', condition: 'skill-v2', repetition: 1 },
+    { taskId: 'T16', condition: 'description', repetition: 1 },
+    { taskId: 'T17', condition: 'skill-v1', repetition: 1 }
+  ]);
+  const repeated = expandStage2bSuite('boundary-v1', 2);
+  assert.equal(repeated.length, 36);
+  assert.equal(repeated[17]?.repetition, 1);
+  assert.equal(repeated[18]?.repetition, 2);
+});
+
 test('owns the Stage 2B task profiles and rejects unknown registry values', () => {
-  assert.deepEqual(STAGE2B_TASK_IDS, ['T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11']);
+  assert.deepEqual(STAGE2B_TASK_IDS, [
+    'T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17'
+  ]);
   assert.deepEqual(getStage2bTaskProfile('T9'), {
     taskId: 'T9', taskRoot: 'stage-2b', toolPolicy: 'forbidden', recoveryMode: 'none'
   });
   assert.deepEqual(getStage2bTaskProfile('T11'), {
     taskId: 'T11', taskRoot: 'stage-2b', toolPolicy: 'required', recoveryMode: 'natural'
   });
+  assert.deepEqual(getStage2bTaskProfile('T12'), {
+    taskId: 'T12', taskRoot: 'stage-2b', toolPolicy: 'forbidden', recoveryMode: 'none'
+  });
+  assert.deepEqual(getStage2bTaskProfile('T17'), {
+    taskId: 'T17', taskRoot: 'stage-2b', toolPolicy: 'required', recoveryMode: 'none'
+  });
   assert.deepEqual(getStage2bSuite('baseline-v1').taskIds, ['T2', 'T7']);
+  assert.deepEqual(getStage2bSuite('boundary-v1').taskIds, ['T12', 'T13', 'T14', 'T15', 'T16', 'T17']);
   assert.throws(() => getStage2bTaskProfile('T99' as never), /unknown.*task/i);
   assert.throws(() => getStage2bSuite('other-v1' as never), /unknown.*suite/i);
 });

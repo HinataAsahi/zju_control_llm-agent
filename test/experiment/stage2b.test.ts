@@ -398,9 +398,10 @@ test('does not count a same-turn successful jq call as recovery from an unobserv
   assert.equal(analyzeStage2bProcess(record).strategy, 'unresolved');
 });
 
-test('keeps description and skill condition inputs isolated', async t => {
-  const firstRequests = new Map<'description' | 'skill', ModelTurnRequest>();
-  for (const condition of ['description', 'skill'] as const) {
+test('keeps description and versioned skill treatment inputs isolated', async t => {
+  const firstRequests = new Map<'description' | 'skill-v1' | 'skill-v2', ModelTurnRequest>();
+  const records = new Map<'description' | 'skill-v1' | 'skill-v2', Stage2bRecord>();
+  for (const condition of ['description', 'skill-v1', 'skill-v2'] as const) {
     await t.test(condition, async t => {
       const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-smoke-'));
       t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
@@ -429,13 +430,14 @@ test('keeps description and skill condition inputs isolated', async t => {
       const request = model.requests[0];
       assert.ok(request);
       firstRequests.set(condition, request);
+      records.set(condition, record);
       assert.equal(record.condition, condition);
       assert.match(record.runId, new RegExp(`^stage2b-T2-${condition}-`));
       assert.equal(record.taskSuccess, true);
       assert.doesNotMatch(request?.history[0]?.type === 'message'
         ? request.history[0].content
         : '', /Use the `jq_query` tool/);
-      if (condition === 'skill') {
+      if (condition === 'skill-v1' || condition === 'skill-v2') {
         assert.match(request?.instructions ?? '', /Reference skill: jq-query/);
         assert.match(request?.instructions ?? '', /# jq Query/);
         assert.match(request?.instructions ?? '', /JQ_SYNTAX_ERROR/);
@@ -446,31 +448,43 @@ test('keeps description and skill condition inputs isolated', async t => {
   }
 
   const description = firstRequests.get('description');
-  const skill = firstRequests.get('skill');
+  const skillV1 = firstRequests.get('skill-v1');
+  const skillV2 = firstRequests.get('skill-v2');
   assert.ok(description);
-  assert.ok(skill);
-  assert.deepEqual(skill.history, description.history);
-  assert.deepEqual(skill.tools, description.tools);
-  assert.deepEqual(skill.outputSchema, description.outputSchema);
+  assert.ok(skillV1);
+  assert.ok(skillV2);
+  for (const skill of [skillV1, skillV2]) {
+    assert.deepEqual(skill.history, description.history);
+    assert.deepEqual(skill.tools, description.tools);
+    assert.deepEqual(skill.outputSchema, description.outputSchema);
+  }
+  assert.doesNotMatch(skillV1.instructions, /Source gate/);
+  assert.match(skillV2.instructions, /Source gate/);
+  assert.equal(records.get('description')?.version, 1);
+  assert.equal(records.get('skill-v1')?.skill?.version, 'v1');
+  assert.equal(records.get('skill-v2')?.skill?.version, 'v2');
+  assert.notEqual(records.get('skill-v1')?.skill?.sha256, records.get('skill-v2')?.skill?.sha256);
 });
 
 test('accepts smoke for the supported representative task set', () => {
   assert.deepEqual(parseStage2bArgs(['smoke']), {
     mode: 'smoke', taskId: 'T1', condition: 'explicit'
   });
-  for (const taskId of ['T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11'] as const) {
+  for (const taskId of [
+    'T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17'
+  ] as const) {
     assert.deepEqual(parseStage2bArgs(['smoke', '--task', taskId]), {
       mode: 'smoke', taskId, condition: 'explicit'
     });
   }
-  for (const condition of ['explicit', 'description', 'skill'] as const) {
+  for (const condition of ['explicit', 'description', 'skill', 'skill-v1', 'skill-v2'] as const) {
     assert.deepEqual(parseStage2bArgs(['smoke', '--condition', condition]), {
       mode: 'smoke', taskId: 'T1', condition
     });
   }
   assert.deepEqual(
-    parseStage2bArgs(['smoke', '--condition', 'skill', '--task', 'T7']),
-    { mode: 'smoke', taskId: 'T7', condition: 'skill' }
+    parseStage2bArgs(['smoke', '--condition', 'skill-v2', '--task', 'T17']),
+    { mode: 'smoke', taskId: 'T17', condition: 'skill-v2' }
   );
   assert.throws(() => parseStage2bArgs([]), /smoke/);
   assert.throws(() => parseStage2bArgs(['smoke', '--extra']), /smoke/);
@@ -496,6 +510,10 @@ test('accepts suite-aware bounded repetition arguments for offline plans', () =>
   assert.deepEqual(
     parseStage2bArgs(['plan', '--suite', 'diagnostic-v1']),
     { mode: 'plan', suite: 'diagnostic-v1', repetitions: 1 }
+  );
+  assert.deepEqual(
+    parseStage2bArgs(['plan', '--suite', 'boundary-v1']),
+    { mode: 'plan', suite: 'boundary-v1', repetitions: 1 }
   );
   for (const argv of [
     ['plan', '--repetitions'],
@@ -789,6 +807,93 @@ test('writes version 2 diagnostic manifests and maps version 1 manifests to base
   };
   assert.equal(persistedLegacy.version, 1);
   assert.equal('suite' in persistedLegacy, false);
+});
+
+test('writes a version 3 boundary manifest with fixed skill hashes and 18 balanced runs', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-boundary-manifest-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+  let output = '';
+
+  const exitCode = await main(['prepare', '--suite', 'boundary-v1'], {
+    repositoryRoot,
+    env: {},
+    writeOutput: text => { output += text; },
+    dependencies: {
+      createModelClient: () => { throw new Error('prepare must not create a model client'); },
+      connectTools: async () => { throw new Error('prepare must not connect MCP tools'); },
+      now: () => new Date('2026-08-13T10:00:00.000Z')
+    }
+  });
+
+  assert.equal(exitCode, 0);
+  const summary = JSON.parse(output) as { batchId: string; manifestPath: string; totalRuns: number };
+  assert.equal(summary.totalRuns, 18);
+  const loaded = await readStage2bBatchManifest(repositoryRoot, summary.batchId);
+  assert.equal(loaded.manifest.version, 3);
+  assert.equal(stage2bManifestSuite(loaded.manifest), 'boundary-v1');
+  if (loaded.manifest.version !== 3) assert.fail('Expected boundary manifest version 3.');
+  assert.equal(loaded.manifest.skills.v1.version, 'v1');
+  assert.equal(loaded.manifest.skills.v2.version, 'v2');
+  assert.match(loaded.manifest.skills.v1.sha256, /^[a-f0-9]{64}$/);
+  assert.match(loaded.manifest.skills.v2.sha256, /^[a-f0-9]{64}$/);
+  assert.notEqual(loaded.manifest.skills.v1.sha256, loaded.manifest.skills.v2.sha256);
+  assert.deepEqual(loaded.manifest.runs.slice(0, 6).map(run => run.runKey), [
+    'T12-description-r1', 'T13-skill-v1-r1', 'T14-skill-v2-r1',
+    'T15-description-r1', 'T16-skill-v1-r1', 'T17-skill-v2-r1'
+  ]);
+
+  const firstClaim = await claimNextStage2bBatchRun({
+    repositoryRoot,
+    batchId: summary.batchId,
+    claimedAt: new Date('2026-08-13T10:01:00.000Z')
+  });
+  assert.ok(firstClaim.run);
+  const legacyDescriptionRecord: Stage2bRecord = {
+    ...completedBatchRecord(firstClaim.run.recordRunId),
+    taskId: firstClaim.run.taskId,
+    condition: firstClaim.run.condition,
+    limits: { ...loaded.manifest.limits }
+  };
+  await assert.rejects(recordStage2bBatchRun({
+    repositoryRoot,
+    batchId: summary.batchId,
+    runKey: firstClaim.run.runKey,
+    record: legacyDescriptionRecord
+  }), /skill identity/i);
+  await recordStage2bBatchRun({
+    repositoryRoot,
+    batchId: summary.batchId,
+    runKey: firstClaim.run.runKey,
+    record: { ...legacyDescriptionRecord, version: 2, skill: null }
+  });
+
+  const secondClaim = await claimNextStage2bBatchRun({
+    repositoryRoot,
+    batchId: summary.batchId,
+    claimedAt: new Date('2026-08-13T10:02:00.000Z')
+  });
+  assert.ok(secondClaim.run);
+  const wrongSkillRecord: Stage2bRecord = {
+    ...completedBatchRecord(secondClaim.run.recordRunId),
+    version: 2,
+    taskId: secondClaim.run.taskId,
+    condition: secondClaim.run.condition,
+    skill: { version: 'v1', sha256: 'f'.repeat(64) },
+    limits: { ...loaded.manifest.limits }
+  };
+  await assert.rejects(recordStage2bBatchRun({
+    repositoryRoot,
+    batchId: summary.batchId,
+    runKey: secondClaim.run.runKey,
+    record: wrongSkillRecord
+  }), /skill identity/i);
+  await recordStage2bBatchRun({
+    repositoryRoot,
+    batchId: summary.batchId,
+    runKey: secondClaim.run.runKey,
+    record: { ...wrongSkillRecord, skill: loaded.manifest.skills.v1 }
+  });
 });
 
 test('rejects manifests whose version, suite, and run order disagree', async t => {
@@ -1261,6 +1366,34 @@ test('returns and privately persists a safe MCP connection failure record', asyn
   assert.equal((await lstat(path)).mode & 0o777, 0o600);
   assert.equal((await lstat(join(repositoryRoot, '.experiment-runs/stage-2b', record.runId))).mode & 0o777, 0o700);
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), record);
+});
+
+test('rejects a changed versioned skill before creating a paid model client', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-skill-mismatch-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+  await cp(resolve('experiments'), join(repositoryRoot, 'experiments'), { recursive: true });
+  let modelClients = 0;
+
+  const record = await runStage2bSmoke({
+    repositoryRoot,
+    taskId: 'T13',
+    condition: 'skill-v1',
+    expectedSkillIdentity: { version: 'v1', sha256: 'f'.repeat(64) },
+    apiKey: 'offline-test-key',
+    dependencies: {
+      createModelClient: () => {
+        modelClients += 1;
+        throw new Error('must not create a model client');
+      },
+      connectTools: async () => { throw new Error('must not connect tools'); }
+    }
+  });
+
+  assert.equal(modelClients, 0);
+  assert.equal(record.status, 'infrastructure-error');
+  assert.equal(record.error?.code, 'SETUP_FAILED');
+  assert.equal(record.version, 2);
+  assert.deepEqual(record.skill, { version: 'v1', sha256: 'f'.repeat(64) });
 });
 
 test('returns a safe configuration record when experiment setup fails', async t => {

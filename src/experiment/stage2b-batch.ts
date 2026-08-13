@@ -19,6 +19,7 @@ import {
   STAGE2B_TASK_IDS,
   type Stage2bSuiteId
 } from './stage2b-suite.js';
+import { loadStage2bSkillAsset } from './stage2b-treatment.js';
 
 export type Stage2bBatchRunStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -28,11 +29,11 @@ const samplingSchema = z.strictObject({
   temperature: z.number().min(0).max(2).nullable()
 });
 const repetitionsSchema = z.number().int().min(1).max(STAGE2B_PLAN_MAX_REPETITIONS);
-const conditionSchema = z.enum(['explicit', 'description', 'skill']);
+const conditionSchema = z.enum(['explicit', 'description', 'skill', 'skill-v1', 'skill-v2']);
 const taskIdSchema = z.enum(STAGE2B_TASK_IDS);
 
 const runIdentityShape = {
-  runKey: z.string().regex(/^T(?:1|2|6|7|9|10|11)-(?:explicit|description|skill)-r[1-9]\d*$/),
+  runKey: z.string().regex(/^T(?:1|2|6|7|9|10|11|12|13|14|15|16|17)-(?:explicit|description|skill|skill-v1|skill-v2)-r[1-9]\d*$/),
   taskId: taskIdSchema,
   condition: conditionSchema,
   repetition: repetitionsSchema
@@ -105,9 +106,26 @@ const stage2bBatchManifestV2Schema = z.strictObject({
   sampling: samplingSchema
 });
 
+const skillIdentitySchema = z.strictObject({
+  version: z.enum(['v1', 'v2']),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/)
+});
+
+const stage2bBatchManifestV3Schema = z.strictObject({
+  version: z.literal(3),
+  suite: z.literal('boundary-v1'),
+  skills: z.strictObject({
+    v1: skillIdentitySchema.extend({ version: z.literal('v1') }),
+    v2: skillIdentitySchema.extend({ version: z.literal('v2') })
+  }),
+  ...sharedManifestShape,
+  sampling: samplingSchema
+});
+
 const stage2bBatchManifestSchema = z.discriminatedUnion('version', [
   stage2bBatchManifestV1Schema,
-  stage2bBatchManifestV2Schema
+  stage2bBatchManifestV2Schema,
+  stage2bBatchManifestV3Schema
 ]).superRefine((manifest, context) => {
   const expected = expandStage2bSuite(
     stage2bManifestSuite(manifest),
@@ -150,9 +168,7 @@ export async function prepareStage2bBatch(options: {
 }): Promise<{ manifest: Stage2bBatchManifest; manifestPath: string }> {
   const plan = createStage2bPlan(options.repetitions, options.suite);
   const batchId = createBatchId(options.createdAt);
-  const manifest: Stage2bBatchManifest = {
-    version: 2,
-    suite: options.suite,
+  const shared = {
     batchId,
     createdAt: options.createdAt.toISOString(),
     provider: 'deepseek',
@@ -168,6 +184,27 @@ export async function prepareStage2bBatch(options: {
       status: 'pending'
     }))
   };
+  let rawManifest: unknown;
+  if (options.suite === 'boundary-v1') {
+    const [v1, v2] = await Promise.all([
+      loadStage2bSkillAsset(options.repositoryRoot, 'skill-v1'),
+      loadStage2bSkillAsset(options.repositoryRoot, 'skill-v2')
+    ]);
+    if (!v1 || !v2) throw new Error('Stage 2B boundary skill assets are unavailable.');
+    rawManifest = {
+      version: 3,
+      suite: 'boundary-v1',
+      skills: { v1: v1.identity, v2: v2.identity },
+      ...shared
+    };
+  } else {
+    rawManifest = {
+      version: 2,
+      suite: options.suite,
+      ...shared
+    };
+  }
+  const manifest = stage2bBatchManifestSchema.parse(rawManifest);
   const manifestPath = await writeStage2bBatchManifest(options.repositoryRoot, manifest);
   return { manifest, manifestPath };
 }
@@ -275,6 +312,7 @@ export async function reconcileStage2bBatch(
     if (record.taskId !== run.taskId || record.condition !== run.condition) {
       throw new Error('Stage 2B persisted record does not match its running batch item.');
     }
+    validateRecordSkillIdentity(loaded.manifest, run, record);
     recoveredRunKeys.push(run.runKey);
     runs.push(terminalBatchRun(run, record));
   }
@@ -311,6 +349,7 @@ export async function recordStage2bBatchRun(options: {
   ) {
     throw new Error('Stage 2B record does not match the selected batch run.');
   }
+  validateRecordSkillIdentity(loaded.manifest, selected, options.record);
 
   const terminal = terminalBatchRun(selected, options.record);
   const runs = [...loaded.manifest.runs];
@@ -345,7 +384,7 @@ async function readOptionalRecordSummary(
   runId: string
 ): Promise<Pick<
   Stage2bRecord,
-  'runId' | 'taskId' | 'condition' | 'status' | 'taskSuccess' | 'recoverySuccess'
+  'version' | 'runId' | 'taskId' | 'condition' | 'skill' | 'status' | 'taskSuccess' | 'recoverySuccess'
 > | undefined> {
   if (!isStage2bRunId(runId)) throw new Error('Unsafe Stage 2B record run ID.');
   const stageRoot = resolve(repositoryRoot, '.experiment-runs/stage-2b');
@@ -362,9 +401,11 @@ async function readOptionalRecordSummary(
   const text = await readRegularText(recordPath);
   validateManifestText(text);
   const summary = z.object({
+    version: z.union([z.literal(1), z.literal(2)]),
     runId: z.string().refine(isStage2bRunId),
     taskId: taskIdSchema,
-    condition: z.enum(['explicit', 'description', 'skill']),
+    condition: conditionSchema,
+    skill: skillIdentitySchema.nullable().optional(),
     status: z.enum([
       'completed',
       'infrastructure-error',
@@ -376,7 +417,40 @@ async function readOptionalRecordSummary(
     recoverySuccess: z.boolean().nullable()
   }).parse(JSON.parse(text));
   if (summary.runId !== runId) throw new Error('Stage 2B record ID does not match its path.');
-  return summary;
+  return {
+    version: summary.version,
+    runId: summary.runId,
+    taskId: summary.taskId,
+    condition: summary.condition,
+    ...(summary.skill === undefined ? {} : { skill: summary.skill }),
+    status: summary.status,
+    taskSuccess: summary.taskSuccess,
+    recoverySuccess: summary.recoverySuccess
+  };
+}
+
+function validateRecordSkillIdentity(
+  manifest: Stage2bBatchManifest,
+  run: Pick<Stage2bBatchRun, 'condition'>,
+  record: Pick<Stage2bRecord, 'version' | 'skill'>
+): void {
+  if (manifest.version !== 3) return;
+  const expected = run.condition === 'skill-v1'
+    ? manifest.skills.v1
+    : run.condition === 'skill-v2'
+      ? manifest.skills.v2
+      : null;
+  const actual = record.skill ?? null;
+  if (
+    record.version !== 2
+    || (expected === null
+      ? actual !== null
+      : actual === null
+        || actual.version !== expected.version
+        || actual.sha256 !== expected.sha256)
+  ) {
+    throw new Error('Stage 2B record skill identity does not match its batch manifest.');
+  }
 }
 
 async function writeStage2bBatchManifest(
