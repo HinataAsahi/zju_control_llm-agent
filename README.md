@@ -53,7 +53,7 @@
 - 与供应商无关的 Agent 循环负责轮次、工具调用、历史回放、超时和错误分类；
 - `McpToolBridge` 通过 stdio 连接仓库中的 `jq` MCP Server，并把发现到的工具转换为模型可用的函数工具；
 - DeepSeek 适配器使用官方 OpenAI SDK 7.4.0，指向 `https://api.deepseek.com` 的 Responses API；
-- Stage 2B 入口可为 T1、T2、T6、T7、T9、T10、T11 准备隔离工作区，运行 `Explicit`、`Description` 或 `Skill` 条件烟雾实验并写入本地记录；
+- Stage 2B 入口可为 T1、T2、T6、T7、T9-T17 准备隔离工作区，并支持历史条件及版本化的 `Skill v1`、`Boundary Skill v2` treatment；
 - 批次执行器可以冻结实验矩阵、逐项领取任务、处理中断对账，并从私有记录生成脱敏的公开报告；
 - 本地 Schema 与 Zod 负责最终答案校验，供应商返回的内容不会未经验证直接成为实验结果。
 
@@ -114,6 +114,10 @@
 新增的 18 条重复观测使用 44098 Token；27 条诊断观测合计使用 66102 Token、66 个模型回合和 39 次工具调用。全部答案正确，但工具合规只有 21/27，六次不合规都来自 T9 的 `Description` 和 `Skill` 条件。T9 的差异在三次观测中完全复现；T10 三种条件的过程一致；T11 的 `Explicit` 和 `Description` 均稳定采用错误预防，而 `Skill` 在两次真实错误后恢复与一次无错误路径之间波动。
 
 这些结果没有显示当前 Skill 在正确率上的优势。它增加了输入上下文，因此 T10 和 T11 的 Token 成本高于另外两种条件；在 T9 中，它也没有帮助模型识别工具不适用。样本仍然很小，每类行为只有一个任务，Explicit 还直接包含正确工具策略，所以这些数据只能描述当前任务集上的稳定现象，不能证明 Skill 的一般因果效应。
+
+基于这个结果，我实现了独立的 `boundary-v1` 套件。它增加 T12-T17 三组配对任务，分别覆盖计数、条件筛选和分组聚合；每组保持数据含义、问题和答案一致，只把输入表示改为纯文本负例或内联 JSON 正例。同期条件固定为 `Description`、冻结的 `Skill v1` 和带顺序决策门的 `Boundary Skill v2`，一轮共 18 次运行。
+
+两个 Skill 以独立资产保存。边界型 v2 要求依次检查来源、任务和可用性，三道门全部通过后才能调用 `jq_query`，并禁止先把非 JSON 数据重编码成 JSON 来绕过边界。v3 批次清单保存两个 Skill 的 SHA-256，record v2 保存实际 treatment 与 Skill 身份；运行前和工作区复制后都会核对哈希，不一致时在创建付费模型客户端前停止。独立报告会同时计算任务正确性和工具合规，并按预先固定的严格门槛决定是否值得追加两轮确认实验。目前这些能力只完成了离线实现和验证，尚未写入真实结果。
 
 ## Stage 2A 观察结果
 
@@ -216,7 +220,7 @@ npm run experiment -- report
 
 ### 运行 Stage 2B 代表任务
 
-Stage 2B 支持 T1、T2、T6、T7、T9、T10、T11 和 `Explicit`、`Description`、`Skill` 三种条件。省略参数时默认运行 T1/Explicit；为了避免密钥进入命令历史，我会先通过隐藏输入读取密钥，再仅为当前进程传入：
+Stage 2B 支持 T1、T2、T6、T7、T9-T17，以及 `explicit`、`description`、`skill`、`skill-v1`、`skill-v2`。省略参数时默认运行 T1/Explicit；为了避免密钥进入命令历史，我会先通过隐藏输入读取密钥，再仅为当前进程传入：
 
 ```bash
 read -rsp "DeepSeek API key: " DEEPSEEK_API_KEY && printf '\n'
@@ -224,7 +228,7 @@ DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" npm run experiment:stage2b -- smoke --task 
 unset DEEPSEEK_API_KEY
 ```
 
-`--task` 可取 `T1`、`T2`、`T6`、`T7`、`T9`、`T10` 或 `T11`，`--condition` 可取 `explicit`、`description` 或 `skill`。命令会产生 DeepSeek API 费用；命令行只输出运行摘要，详细记录保存在已忽略的本地目录中。Stage 2B 不会自动重试失败请求，避免基础设施错误造成不可见的额外费用。
+`--task` 可取上述任务 ID，`--condition` 可取上述五种 treatment。命令会产生 DeepSeek API 费用；命令行只输出运行摘要，详细记录保存在已忽略的本地目录中。Stage 2B 不会自动重试失败请求，避免基础设施错误造成不可见的额外费用。
 
 在批量执行前，我可以先生成完全离线的实验计划：
 
@@ -240,6 +244,12 @@ npm run experiment:stage2b -- plan --repetitions 2
 npm run experiment:stage2b -- plan --suite diagnostic-v1 --repetitions 1
 ```
 
+边界套件的一轮计划固定为 6 个任务乘 3 个 treatment，共 18 项：
+
+```bash
+npm run experiment:stage2b -- plan --suite boundary-v1 --repetitions 1
+```
+
 确认规模后，我可以把相同计划冻结为一个本地批次清单：
 
 ```bash
@@ -250,6 +260,12 @@ npm run experiment:stage2b -- prepare --repetitions 2
 
 ```bash
 npm run experiment:stage2b -- prepare --suite diagnostic-v1 --repetitions 1
+```
+
+边界批次会额外冻结 Skill 版本与内容哈希：
+
+```bash
+npm run experiment:stage2b -- prepare --suite boundary-v1 --repetitions 1
 ```
 
 `prepare` 同样不读取密钥、不连接模型或 MCP，也不会执行实验。它在 `.experiment-runs/stage-2b/batches/<batch-id>/manifest.json` 保存模型配置、采样温度、运行限制和稳定的 `runKey`，所有实验项初始为 `pending`。批次目录权限为 `0700`，清单文件为 `0600`；清单和后续状态仍属于本地实验记录，不会提交到 GitHub。执行阶段将复用这份清单，并让每个条目依次经过 `pending`、`running` 和终态，以支持中断后的断点恢复。旧清单没有采样字段时会被解释为 `temperature: null`，继续省略请求参数并使用供应商默认值，不会伪装成温度 0 实验；旧清单冻结的 5 轮、4 次调用限制也会原样保留，新预算不会回写历史批次。
@@ -286,6 +302,14 @@ npm run experiment:stage2b -- report --batch <initial-batch-id> --repeat-batch <
 
 诊断报告除答案正确性外，还给出工具合规、首次调用结果、归一化策略、脱敏调用路径、回合数、工具调用数和 Token 用量。恢复成功只在 T11 确实先观察到错误输出、之后又执行了成功重试时才计入；先检查结构并避免错误会归类为 `inspect-first`，不会被误算成错误恢复。
 
+边界批次进入终态后使用独立报告入口：
+
+```bash
+npm run experiment:stage2b -- report --boundary-batch <boundary-batch-id>
+```
+
+首轮门控通过后，才能准备两轮确认批次，并用 `--repeat-batch` 合并为每个单元格三次观测。报告路径为 `experiments/stage-2b/results/boundary-v1/`；公开内容不包含原始 filter、工具输出、模型回答、记录 ID、调用 ID、本机路径或凭据。
+
 ## 项目结构
 
 ```text
@@ -302,6 +326,7 @@ experiments/stage-2a/reference-skill/
 experiments/stage-2a/results/    可公开的脱敏观察与报告
 experiments/stage-2b/results/    Stage 2B 脱敏批次汇总与报告
 experiments/stage-2b/tasks/      Stage 2B 独立诊断任务与固定输入
+experiments/stage-2b/skills/     Stage 2B 冻结的版本化 Skill 资产
 docs/learning-notes/             前期学习材料
 ```
 
@@ -309,6 +334,6 @@ docs/learning-notes/             前期学习材料
 
 我已完成 Stage 2B 的 pilot、预算校准、固定配置重复观测，以及 `diagnostic-v1` 的三次完整观测。版本 4 报告把任务成功与过程行为分开：答案正确不代表工具选择合规，错误预防也不等同于错误后恢复。
 
-相同配置已经提供了足够一致的方向性信号，继续机械重复的边际信息有限。下一阶段应先在离线环境设计“工具适用性边界”对照：保留当前 Skill 作为基线，增加一份明确说明何时不应使用 jq 的边界型 Skill，并扩展成多组相互匹配的纯文本负例与 JSON 正例。实现和测试通过后，再用小规模真实批次判断 Skill 内容是否改善工具选择，而不是只增加提示长度和 Token 成本。
+`boundary-v1` 的离线实现、哈希门控、18 项计划、记录兼容和脱敏报告已经完成。下一步是在功能分支验证和审阅通过后执行一轮真实批次：只有 `Boundary Skill v2` 达到 6/6 答案正确、3/3 纯文本负例零调用、3/3 JSON 正例成功调用，且负例合规优于 `Skill v1`，才追加两轮确认实验。
 
-这一步仍保持模型、温度、预算和执行器不变，只改变经过版本化的 Skill 内容与任务覆盖；多工具选择和随机温度实验留到边界型 Skill 的效果得到基本验证之后，避免同时引入过多解释变量。
+这一阶段继续保持模型、温度、预算和执行器不变，只改变版本化 Skill 内容与任务表示。若首轮未通过，我会先分析私有轨迹并修正假设，不机械增加付费样本；多工具选择和随机温度实验继续后置。
