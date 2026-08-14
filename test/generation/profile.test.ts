@@ -193,6 +193,10 @@ test('renders evidence and profile decisions into a readable review report', asy
   const report = renderProfileReview(evidence, ir, profile);
 
   assert.match(report, /# jq MCP 生成审阅报告/);
+  assert.match(report, /## IR 抽取结果/);
+  assert.match(report, /推断类型/);
+  assert.match(report, /`boolean`/);
+  assert.match(report, /未知/);
   assert.match(report, /`--compact-output`/);
   assert.match(report, /允许/);
   assert.match(report, /帮助文本第 3 行/);

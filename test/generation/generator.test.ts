@@ -112,6 +112,8 @@ test('extracts CLI IR in one request with numbered immutable evidence', async ()
 
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0]?.tools, []);
+  assert.match(requests[0]?.instructions ?? '', /cardinality is one\|optional\|zero-or-more\|one-or-more/);
+  assert.match(requests[0]?.instructions ?? '', /constraint kind is implies\|conflicts\|range\|other/);
   assert.match(requests[0]?.history[0]?.type === 'message' ? requests[0].history[0].content : '', /L1: Usage/);
   assert.equal(result.artifact.options.length, 2);
   assert.deepEqual(result.usage, usage);
@@ -138,6 +140,10 @@ test('proposes and validates a complete ToolProfile in one request', async () =>
   const result = await proposeToolProfile({ ir, client: clientReturning(JSON.stringify(profileValue), requests) });
 
   assert.equal(requests.length, 1);
+  assert.match(requests[0]?.instructions ?? '', /risk is low\|medium\|high/);
+  assert.match(requests[0]?.instructions ?? '', /"shape":\{"type":"string"/);
+  assert.match(requests[0]?.instructions ?? '', /fixedOptions is an array of capability-id strings/);
+  assert.match(requests[0]?.instructions ?? '', /argv entries use exactly field, capabilityId, and position/);
   assert.equal(result.artifact.tool.name, 'jq_query_generated');
   assert.equal(result.artifact.capabilityDecisions.length, 3);
 });

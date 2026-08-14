@@ -23,6 +23,44 @@ export function renderProfileReview(evidence: CliEvidence, ir: CliIr, profile: T
     ...sourceLines(evidence, 'help'),
     '```',
     '',
+    '## IR 抽取结果',
+    '',
+    `摘要：${escapeMarkdown(ir.summary)}`,
+    '',
+    '### Usage',
+    '',
+    ...ir.usageForms.map(item => `- \`${escapeCode(item.text)}\`（${evidenceLabel(item.evidence)}）`),
+    '',
+    '### 位置参数',
+    '',
+    '| ID | 名称 | 基数 | 推断类型 | 置信度 | 不确定性 |',
+    '|---|---|---|---|---|---|',
+    ...ir.positionals.map(item => row(
+      `\`${escapeCode(item.id)}\``,
+      `\`${escapeCode(item.name)}\``,
+      cardinalityLabel(item.cardinality),
+      `\`${item.inferredType}\``,
+      confidenceLabel(item.confidence),
+      item.uncertainty ?? '无'
+    )),
+    '',
+    '### 选项',
+    '',
+    '| 选项 | 取值 | 值名 | 推断类型 | 可重复 | 置信度 | 不确定性 | 约束 |',
+    '|---|---|---|---|---|---|---|---|',
+    ...ir.options.map(option => row(
+      option.names.map(name => `\`${escapeCode(name)}\``).join(' / '),
+      option.takesValue ? '是' : '否',
+      option.valueName ? `\`${escapeCode(option.valueName)}\`` : '无',
+      `\`${option.inferredType}\``,
+      repeatableLabel(option.repeatable),
+      confidenceLabel(option.confidence),
+      option.uncertainty ?? '无',
+      option.constraints.length > 0
+        ? option.constraints.map(constraint => `${constraint.kind}: ${constraint.expression}`).join('；')
+        : '无'
+    )),
+    '',
     '## 能力处置',
     '',
     '| 能力 | 类型 | 决定 | 风险 | 原因 | 证据 |',
@@ -77,6 +115,23 @@ export function renderProfileReview(evidence: CliEvidence, ir: CliIr, profile: T
     ''
   );
   return `${lines.join('\n')}\n`;
+}
+
+function cardinalityLabel(value: CliIr['positionals'][number]['cardinality']): string {
+  return {
+    one: '恰好一个',
+    optional: '零或一个',
+    'zero-or-more': '零个或多个',
+    'one-or-more': '一个或多个'
+  }[value];
+}
+
+function confidenceLabel(value: 'high' | 'medium' | 'low'): string {
+  return { high: '高', medium: '中', low: '低' }[value];
+}
+
+function repeatableLabel(value: CliIr['options'][number]['repeatable']): string {
+  return { yes: '是', no: '否', unknown: '未知' }[value];
 }
 
 function sourceLines(evidence: CliEvidence, id: 'version' | 'help'): string[] {
