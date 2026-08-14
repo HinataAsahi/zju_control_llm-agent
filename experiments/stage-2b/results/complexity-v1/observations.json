@@ -1,0 +1,272 @@
+{
+  "version": 1,
+  "scope": "complexity-calibration-observations",
+  "suite": "complexity-v1",
+  "createdAt": "2026-08-14T12:15:52.262Z",
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "thinking": "none",
+  "sampling": {
+    "temperature": 0
+  },
+  "repetitions": 1,
+  "limits": {
+    "maxTurns": 6,
+    "maxToolCalls": 5,
+    "requestTimeoutMs": 60000,
+    "totalTimeoutMs": 120000
+  },
+  "counts": {
+    "total": 6,
+    "completed": 6,
+    "failed": 0,
+    "taskSuccess": 6,
+    "toolAttempted": 5,
+    "successfulToolUse": 5,
+    "directAnswers": 1,
+    "limitExceeded": 0
+  },
+  "usage": {
+    "inputTokens": 16412,
+    "cachedInputTokens": 11008,
+    "outputTokens": 3275,
+    "reasoningOutputTokens": 0,
+    "totalTokens": 19687
+  },
+  "turns": 13,
+  "toolCalls": 7,
+  "calibration": {
+    "usable": true,
+    "correctDirectAnswers": 1,
+    "correctSuccessfulToolUses": 5,
+    "scaleSwitchOperations": [
+      "count"
+    ]
+  },
+  "runs": [
+    {
+      "taskId": "T18",
+      "operation": "count",
+      "size": "small",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "toolAttempted": false,
+      "successfulToolUse": false,
+      "selection": "direct",
+      "firstCallOutcome": "no-call",
+      "strategy": "direct-answer",
+      "tracePath": [],
+      "turns": 1,
+      "toolCalls": 0,
+      "usage": {
+        "inputTokens": 685,
+        "cachedInputTokens": 512,
+        "outputTokens": 33,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 718
+      }
+    },
+    {
+      "taskId": "T21",
+      "operation": "filter-sort",
+      "size": "medium",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "toolAttempted": true,
+      "successfulToolUse": true,
+      "selection": "successful-tool",
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ],
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 2812,
+        "cachedInputTokens": 1408,
+        "outputTokens": 580,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 3392
+      }
+    },
+    {
+      "taskId": "T22",
+      "operation": "group-aggregate",
+      "size": "small",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "toolAttempted": true,
+      "successfulToolUse": true,
+      "selection": "successful-tool",
+      "firstCallOutcome": "JQ_RUNTIME_ERROR",
+      "strategy": "recovered-after-error",
+      "tracePath": [
+        "task-query:JQ_RUNTIME_ERROR",
+        "task-query:ok"
+      ],
+      "turns": 3,
+      "toolCalls": 2,
+      "usage": {
+        "inputTokens": 3061,
+        "cachedInputTokens": 2432,
+        "outputTokens": 557,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 3618
+      }
+    },
+    {
+      "taskId": "T19",
+      "operation": "count",
+      "size": "medium",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "toolAttempted": true,
+      "successfulToolUse": true,
+      "selection": "successful-tool",
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ],
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 2740,
+        "cachedInputTokens": 1536,
+        "outputTokens": 541,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 3281
+      }
+    },
+    {
+      "taskId": "T20",
+      "operation": "filter-sort",
+      "size": "small",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "toolAttempted": true,
+      "successfulToolUse": true,
+      "selection": "successful-tool",
+      "firstCallOutcome": "ok",
+      "strategy": "one-shot-query",
+      "tracePath": [
+        "task-query:ok"
+      ],
+      "turns": 2,
+      "toolCalls": 1,
+      "usage": {
+        "inputTokens": 1696,
+        "cachedInputTokens": 1152,
+        "outputTokens": 247,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 1943
+      }
+    },
+    {
+      "taskId": "T23",
+      "operation": "group-aggregate",
+      "size": "medium",
+      "condition": "description",
+      "repetition": 1,
+      "status": "completed",
+      "taskSuccess": true,
+      "toolAttempted": true,
+      "successfulToolUse": true,
+      "selection": "successful-tool",
+      "firstCallOutcome": "JQ_RUNTIME_ERROR",
+      "strategy": "recovered-after-error",
+      "tracePath": [
+        "task-query:JQ_RUNTIME_ERROR",
+        "task-query:ok"
+      ],
+      "turns": 3,
+      "toolCalls": 2,
+      "usage": {
+        "inputTokens": 5418,
+        "cachedInputTokens": 3968,
+        "outputTokens": 1317,
+        "reasoningOutputTokens": 0,
+        "totalTokens": 6735
+      }
+    }
+  ],
+  "matrix": [
+    {
+      "taskId": "T18",
+      "operation": "count",
+      "size": "small",
+      "taskSuccess": true,
+      "selection": "direct",
+      "strategy": "direct-answer",
+      "turns": 1,
+      "toolCalls": 0,
+      "totalTokens": 718
+    },
+    {
+      "taskId": "T19",
+      "operation": "count",
+      "size": "medium",
+      "taskSuccess": true,
+      "selection": "successful-tool",
+      "strategy": "one-shot-query",
+      "turns": 2,
+      "toolCalls": 1,
+      "totalTokens": 3281
+    },
+    {
+      "taskId": "T20",
+      "operation": "filter-sort",
+      "size": "small",
+      "taskSuccess": true,
+      "selection": "successful-tool",
+      "strategy": "one-shot-query",
+      "turns": 2,
+      "toolCalls": 1,
+      "totalTokens": 1943
+    },
+    {
+      "taskId": "T21",
+      "operation": "filter-sort",
+      "size": "medium",
+      "taskSuccess": true,
+      "selection": "successful-tool",
+      "strategy": "one-shot-query",
+      "turns": 2,
+      "toolCalls": 1,
+      "totalTokens": 3392
+    },
+    {
+      "taskId": "T22",
+      "operation": "group-aggregate",
+      "size": "small",
+      "taskSuccess": true,
+      "selection": "successful-tool",
+      "strategy": "recovered-after-error",
+      "turns": 3,
+      "toolCalls": 2,
+      "totalTokens": 3618
+    },
+    {
+      "taskId": "T23",
+      "operation": "group-aggregate",
+      "size": "medium",
+      "taskSuccess": true,
+      "selection": "successful-tool",
+      "strategy": "recovered-after-error",
+      "turns": 3,
+      "toolCalls": 2,
+      "totalTokens": 6735
+    }
+  ]
+}

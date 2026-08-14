@@ -2,7 +2,7 @@
 
 ## 技术目标
 
-本项目研究 LLM Agent 如何发现、选择和调用 MCP 工具，并逐步实现可控的工具调用执行器与行为评测流程。技术路线分为三个连续阶段：Stage 1 实现边界明确的 `jq` MCP Server；Stage 2A 使用 Codex 观察提示方式对工具选择、调用正确性和错误恢复的影响；Stage 2B 自行实现 API Agent Runner，控制模型调用、MCP 调用、上下文回放、结果校验和运行记录。
+本项目研究 LLM Agent 如何发现、选择和调用 MCP 工具，并逐步实现可控的工具调用执行器与行为评测流程。技术路线从三个基础阶段展开：Stage 1 实现边界明确的 `jq` MCP Server；Stage 2A 使用 Codex 观察提示方式对工具选择、调用正确性和错误恢复的影响；Stage 2B 自行实现 API Agent Runner，控制模型调用、MCP 调用、上下文回放、结果校验和运行记录。在这些基础设施和行为基线稳定后，下一阶段进入从 CLI 文档自动生成 MCP schema 与 Skill 的主线。
 
 ## 我完成了什么
 
@@ -53,7 +53,7 @@
 - 与供应商无关的 Agent 循环负责轮次、工具调用、历史回放、超时和错误分类；
 - `McpToolBridge` 通过 stdio 连接仓库中的 `jq` MCP Server，并把发现到的工具转换为模型可用的函数工具；
 - DeepSeek 适配器使用官方 OpenAI SDK 7.4.0，指向 `https://api.deepseek.com` 的 Responses API；
-- Stage 2B 入口可为 T1、T2、T6、T7、T9-T17 准备隔离工作区，并支持历史条件及版本化的 `Skill v1`、`Boundary Skill v2` treatment；
+- Stage 2B 入口可为 T1、T2、T6、T7、T9-T23 准备隔离工作区，并支持历史条件及版本化的 `Skill v1`、`Boundary Skill v2` treatment；
 - 批次执行器可以冻结实验矩阵、逐项领取任务、处理中断对账，并从私有记录生成脱敏的公开报告；
 - 本地 Schema 与 Zod 负责最终答案校验，供应商返回的内容不会未经验证直接成为实验结果。
 
@@ -131,6 +131,18 @@
 
 逐项轨迹显示，纯文本负例在三种条件下都足够容易直接作答；JSON 正例的选择反而随任务复杂度变化：简单计数有两个条件调用工具，中等筛选三个条件都直接作答，复杂聚合三个条件都调用工具并从同类 jq 运行时错误中恢复。这说明本轮更明显地观察到了任务复杂度效应，而不是边界 Skill 对工具适用性判断的稳定增益。v2 的 Token 成本仍最高，所以不能把增加说明长度本身视为改进。
 
+为把这个复杂度效应从边界 Skill 对比中分离出来，我又实现了独立的 `complexity-v1` 校准套件。它只使用 `Description` 条件，把计数、筛选排序、分组聚合分别放在 6 行小型数据和 24 行中型数据上；中型数据包含对应小型数据的全部行。固定顺序为 T18、T21、T22、T19、T20、T23，每项只运行一次，是否调用工具仅作为观测，不作为通过或失败标准。
+
+六项真实运行全部完成且答案正确，没有基础设施失败、重试或预算超限：
+
+| 操作 | 小型数据 | 中型数据 | 结果 |
+|---|---|---|---|
+| 计数 | 直接作答，1 回合 / 0 调用 | 一次查询，2 回合 / 1 调用 | 观察到随规模切换到工具 |
+| 筛选排序 | 一次查询，2 回合 / 1 调用 | 一次查询，2 回合 / 1 调用 | 两种规模都成功使用工具 |
+| 分组聚合 | 错误后恢复，3 回合 / 2 调用 | 错误后恢复，3 回合 / 2 调用 | 两种规模都从 `JQ_RUNTIME_ERROR` 恢复 |
+
+整个批次使用 13 个模型回合、7 次工具调用和 19687 Token。其中输入 16412 Token，缓存命中 11008 Token，输出 3275 Token。校准同时包含正确的直接作答和正确的工具使用，因此达到了预先定义的可用条件；计数任务形成了清晰的规模切换候选。它仍然只有每个单元格一次观测，适合确定后续任务难度，不足以支持统计推断。
+
 ## Stage 2A 观察结果
 
 我先按固定阶梯校准模型。较低配置在混合路径或错误恢复任务上没有全部达到门槛，最终选择了 `gpt-5.6-terra / medium`。正式运行使用 Codex CLI 0.147.0，24/24 条轨迹均有效且答案正确，没有基础设施失败或待人工复核项。
@@ -156,6 +168,8 @@
 - `experiments/stage-2b/results/diagnostic-v1/report.zh.md`：诊断套件的逐项结果、成本与解读边界。
 - `experiments/stage-2b/results/boundary-v1/observations.json`：18 条配对边界观测、条件汇总和预注册门控结果；
 - `experiments/stage-2b/results/boundary-v1/report.zh.md`：边界型 Skill 首轮结果、成本与停止决定。
+- `experiments/stage-2b/results/complexity-v1/observations.json`：6 条规模与操作复杂度校准观测；
+- `experiments/stage-2b/results/complexity-v1/report.zh.md`：直接作答、成功工具使用、错误恢复和规模切换结果。
 
 原始 JSONL、stderr、临时工作区和校准记录位于本机 `.experiment-runs/`，不会提交到 GitHub。
 
@@ -234,7 +248,7 @@ npm run experiment -- report
 
 ### 运行 Stage 2B 代表任务
 
-Stage 2B 支持 T1、T2、T6、T7、T9-T17，以及 `explicit`、`description`、`skill`、`skill-v1`、`skill-v2`。省略参数时默认运行 T1/Explicit；为了避免密钥进入命令历史，我会先通过隐藏输入读取密钥，再仅为当前进程传入：
+Stage 2B 支持 T1、T2、T6、T7、T9-T23，以及 `explicit`、`description`、`skill`、`skill-v1`、`skill-v2`。省略参数时默认运行 T1/Explicit；为了避免密钥进入命令历史，我会先通过隐藏输入读取密钥，再仅为当前进程传入：
 
 ```bash
 read -rsp "DeepSeek API key: " DEEPSEEK_API_KEY && printf '\n'
@@ -264,6 +278,12 @@ npm run experiment:stage2b -- plan --suite diagnostic-v1 --repetitions 1
 npm run experiment:stage2b -- plan --suite boundary-v1 --repetitions 1
 ```
 
+复杂度套件固定为 6 个 `Description` 任务且只允许一次 repetition：
+
+```bash
+npm run experiment:stage2b -- plan --suite complexity-v1 --repetitions 1
+```
+
 确认规模后，我可以把相同计划冻结为一个本地批次清单：
 
 ```bash
@@ -280,6 +300,12 @@ npm run experiment:stage2b -- prepare --suite diagnostic-v1 --repetitions 1
 
 ```bash
 npm run experiment:stage2b -- prepare --suite boundary-v1 --repetitions 1
+```
+
+复杂度批次使用同一冻结机制，但会拒绝大于 1 的 repetition，避免无意扩大付费运行：
+
+```bash
+npm run experiment:stage2b -- prepare --suite complexity-v1 --repetitions 1
 ```
 
 `prepare` 同样不读取密钥、不连接模型或 MCP，也不会执行实验。它在 `.experiment-runs/stage-2b/batches/<batch-id>/manifest.json` 保存模型配置、采样温度、运行限制和稳定的 `runKey`，所有实验项初始为 `pending`。批次目录权限为 `0700`，清单文件为 `0600`；清单和后续状态仍属于本地实验记录，不会提交到 GitHub。执行阶段将复用这份清单，并让每个条目依次经过 `pending`、`running` 和终态，以支持中断后的断点恢复。旧清单没有采样字段时会被解释为 `temperature: null`，继续省略请求参数并使用供应商默认值，不会伪装成温度 0 实验；旧清单冻结的 5 轮、4 次调用限制也会原样保留，新预算不会回写历史批次。
@@ -330,6 +356,14 @@ npm run experiment:stage2b -- prepare --suite boundary-v1 --repetitions 2 --init
 
 随后可用 `--repeat-batch` 合并为每个单元格三次观测。本轮门控未通过，所以该命令会拒绝创建确认批次。报告路径为 `experiments/stage-2b/results/boundary-v1/`；公开内容不包含原始 filter、工具输出、模型回答、记录 ID、调用 ID、本机路径或凭据。
 
+复杂度批次结束后使用独立报告入口：
+
+```bash
+npm run experiment:stage2b -- report --complexity-batch <complexity-batch-id>
+```
+
+报告写入 `experiments/stage-2b/results/complexity-v1/`，给出任务成功、工具尝试、成功工具使用、首次调用结果、策略、回合、调用数和 Token。公开产物不写入私有批次 ID、记录 ID、调用 ID、原始 filter、工具输出或最终答案。
+
 ## 项目结构
 
 ```text
@@ -345,15 +379,13 @@ experiments/stage-2a/reference-skill/
                                  Skill 条件使用的 jq 参考 Skill
 experiments/stage-2a/results/    可公开的脱敏观察与报告
 experiments/stage-2b/results/    Stage 2B 脱敏批次汇总与报告
-experiments/stage-2b/tasks/      Stage 2B 独立诊断任务与固定输入
+experiments/stage-2b/tasks/      Stage 2B 诊断、边界与复杂度任务
 experiments/stage-2b/skills/     Stage 2B 冻结的版本化 Skill 资产
 docs/learning-notes/             前期学习材料
 ```
 
 ## 下一步
 
-我已完成 Stage 2B 的 pilot、预算校准、固定配置重复观测，以及 `diagnostic-v1` 的三次完整观测。版本 4 报告把任务成功与过程行为分开：答案正确不代表工具选择合规，错误预防也不等同于错误后恢复。
+我已完成 Stage 2B 的 pilot、预算校准、固定配置重复观测、`diagnostic-v1`、`boundary-v1` 首轮和 `complexity-v1` 校准。复杂度校准把任务成功与工具选择分开，并找到了“6 行计数直接作答、24 行计数使用工具”的候选边界；继续重复同类评测的边际价值已经低于进入生成主线。
 
-`boundary-v1` 的离线实现和首轮 18 项真实实验已经完成。由于预注册门控未通过，我停止了重复采样；当前数据不支持“边界型 Skill 已稳定改善工具选择”的结论。
-
-下一步应先修正实验问题，而不是继续改写 Skill 或增加重复数。新的探索需要把负例设计在更接近工具适用边界的位置，并把 JSON 正例的任务复杂度作为显式变量，避免“输入格式是否为 JSON”和“任务是否值得调用工具”被模型自行权衡后混在同一个合规指标中。多工具选择和随机温度实验仍然后置。
+下一步开始实现最小的自动生成闭环：读取现有 `jq` CLI 文档或 `--help` 输出，形成结构化中间表示，再生成 MCP tool schema 和 Skill 草案，并用静态校验、受限执行和现有 Agent Runner 验证产物。首版先把生成过程限定在一个已知 CLI 上，保留人工审阅节点；链路稳定后再引入第二个 CLI，检查抽取规则和生成结果是否能够泛化，而不是继续为 `jq` 手写专用逻辑。
