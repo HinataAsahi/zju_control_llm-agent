@@ -143,6 +143,22 @@
 
 整个批次使用 13 个模型回合、7 次工具调用和 19687 Token。其中输入 16412 Token，缓存命中 11008 Token，输出 3275 Token。校准同时包含正确的直接作答和正确的工具使用，因此达到了预先定义的可用条件；计数任务形成了清晰的规模切换候选。它仍然只有每个单元格一次观测，适合确定后续任务难度，不足以支持统计推断。
 
+### Stage 3：实现证据驱动的 CLI 生成管线
+
+我已经完成首版离线实现，并把文档抽取与工具设计拆成两个可独立验证的结构：`CliIr` 忠实记录 `jq --version`、`jq --help` 中的 Usage、位置参数、选项、约束和证据行；`ToolProfile` 再为每项能力给出 `allow`、`deny` 或 `defer` 决策，并定义 MCP 输入字段与声明式执行绑定。所有未明确允许的能力默认禁止。
+
+当前管线按以下阶段运行：
+
+```text
+collect -> extract -> propose -> review -> approve -> materialize -> skill -> verify
+```
+
+其中 `extract`、`propose` 和 `skill` 分别对应一次 DeepSeek 请求，固定温度 0、关闭思考与 SDK 自动重试。MCP Schema 和执行规格不由模型直接编写，而是从已校验 Profile 确定性派生。审批记录同时绑定证据、IR 和 Profile 的 SHA-256；任一内容变化都会让旧审批失效。
+
+声明式执行器只接受本地配置提供的可执行文件，以及经过验证的固定选项、位置参数和 JSON 标准输入绑定。它保持 `shell: false`，使用最小环境，限制输入、输出和执行时间，并复用已有的文件根目录与符号链接防护。生成产物不能提供自由命令模板、可执行路径或环境变量。
+
+未批准的 IR、Profile、模型阶段元数据、失败响应和审阅报告保存在已忽略的 `.generation-runs/stage-3/jq/`，目录权限为 `0700`、文件权限为 `0600`。只有审阅通过的证据和生成产物才会进入 `experiments/stage-3/artifacts/` 并提交。当前尚未执行真实生成请求，因此仓库中没有伪造的 Stage 3 结果。
+
 ## Stage 2A 观察结果
 
 我先按固定阶梯校准模型。较低配置在混合路径或错误恢复任务上没有全部达到门槛，最终选择了 `gpt-5.6-terra / medium`。正式运行使用 Codex CLI 0.147.0，24/24 条轨迹均有效且答案正确，没有基础设施失败或待人工复核项。
@@ -190,6 +206,30 @@ Stage 2B 的工作区和运行记录同样位于 `.experiment-runs/stage-2b/`。
 npm ci
 npm test
 ```
+
+## 运行 Stage 3 生成管线
+
+本地生成命令每次只推进一个阶段，便于在失败后停止诊断，而不是自动产生额外付费请求：
+
+```bash
+npm run generation -- collect
+npm run generation -- extract
+npm run generation -- propose
+npm run generation -- review
+```
+
+`collect` 和 `review` 完全离线。`extract` 与 `propose` 会优先读取当前进程的 `DEEPSEEK_API_KEY`；若未设置，则读取权限必须为 `0600` 的 `~/.config/zju-control-llm-agent/deepseek.key`。命令只输出阶段、状态、私有产物路径和 Token 汇总，不输出密钥或模型原始内容。
+
+审阅 `.generation-runs/stage-3/jq/review.md` 后，才可以依次执行：
+
+```bash
+npm run generation -- approve
+npm run generation -- materialize
+npm run generation -- skill
+npm run generation -- verify
+```
+
+`approve` 不调用模型；`skill` 进行第三次且唯一一次该阶段的付费请求；`verify` 重新校验审批和 Skill 的 Profile 哈希，并通过声明式执行器完成两项真实 `jq` 冒烟验证。当前首版验证执行层，接入 MCP Server 与现有 Agent Runner 的任务级评测属于实际生成结果审阅后的下一增量。
 
 ## 使用 jq MCP Server
 
@@ -370,9 +410,11 @@ npm run experiment:stage2b -- report --complexity-batch <complexity-batch-id>
 src/mcp/                         jq MCP Server
 src/agent/                       Agent 循环、DeepSeek 适配器与 MCP 桥接
 src/experiment/                  Stage 2A/2B 实验执行、解析与评测
+src/generation/                  Stage 3 采集、生成、审批与声明式执行
 test/mcp/                        MCP Server 测试
 test/agent/                      Agent 循环与供应商适配测试
 test/experiment/                 实验基础设施测试
+test/generation/                 Stage 3 生成管线测试
 experiments/stage-2a/tasks/      任务定义与固定输入
 experiments/stage-2a/prompts/    三种条件使用的提示材料
 experiments/stage-2a/reference-skill/
@@ -388,4 +430,4 @@ docs/learning-notes/             前期学习材料
 
 我已完成 Stage 2B 的 pilot、预算校准、固定配置重复观测、`diagnostic-v1`、`boundary-v1` 首轮和 `complexity-v1` 校准。复杂度校准把任务成功与工具选择分开，并找到了“6 行计数直接作答、24 行计数使用工具”的候选边界；继续重复同类评测的边际价值已经低于进入生成主线。
 
-下一步开始实现最小的自动生成闭环：读取现有 `jq` CLI 文档或 `--help` 输出，形成结构化中间表示，再生成 MCP tool schema 和 Skill 草案，并用静态校验、受限执行和现有 Agent Runner 验证产物。首版先把生成过程限定在一个已知 CLI 上，保留人工审阅节点；链路稳定后再引入第二个 CLI，检查抽取规则和生成结果是否能够泛化，而不是继续为 `jq` 手写专用逻辑。
+下一步运行 Stage 3 的 `collect -> extract -> propose -> review`，检查真实 `jq 1.8.2` 证据、完整能力抽取、默认拒绝决策和生成 Token 用量。Profile 审阅通过后，再物化 Schema/执行规格并生成 Skill；随后把已批准产物接入 MCP Server 与现有 Agent Runner，比较它和人工 `jq_query` 基线的接口、执行结果及任务行为。链路稳定后再引入第二个 CLI，检查抽取规则和生成结果是否能够泛化。
