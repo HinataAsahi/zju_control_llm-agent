@@ -74,9 +74,21 @@ test('expands boundary-v1 as three balanced treatment blocks', () => {
   assert.equal(repeated[18]?.repetition, 2);
 });
 
+test('expands complexity-v1 in its fixed size-alternating order', () => {
+  assert.deepEqual(expandStage2bSuite('complexity-v1', 1), [
+    { taskId: 'T18', condition: 'description', repetition: 1 },
+    { taskId: 'T21', condition: 'description', repetition: 1 },
+    { taskId: 'T22', condition: 'description', repetition: 1 },
+    { taskId: 'T19', condition: 'description', repetition: 1 },
+    { taskId: 'T20', condition: 'description', repetition: 1 },
+    { taskId: 'T23', condition: 'description', repetition: 1 }
+  ]);
+});
+
 test('owns the Stage 2B task profiles and rejects unknown registry values', () => {
   assert.deepEqual(STAGE2B_TASK_IDS, [
-    'T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17'
+    'T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17',
+    'T18', 'T19', 'T20', 'T21', 'T22', 'T23'
   ]);
   assert.deepEqual(getStage2bTaskProfile('T9'), {
     taskId: 'T9', taskRoot: 'stage-2b', toolPolicy: 'forbidden', recoveryMode: 'none'
@@ -90,8 +102,23 @@ test('owns the Stage 2B task profiles and rejects unknown registry values', () =
   assert.deepEqual(getStage2bTaskProfile('T17'), {
     taskId: 'T17', taskRoot: 'stage-2b', toolPolicy: 'required', recoveryMode: 'none'
   });
+  assert.deepEqual(getStage2bTaskProfile('T18'), {
+    taskId: 'T18',
+    taskRoot: 'stage-2b',
+    toolPolicy: 'observed',
+    recoveryMode: 'none',
+    calibration: { size: 'small', operation: 'count' }
+  });
+  assert.deepEqual(getStage2bTaskProfile('T23'), {
+    taskId: 'T23',
+    taskRoot: 'stage-2b',
+    toolPolicy: 'observed',
+    recoveryMode: 'none',
+    calibration: { size: 'medium', operation: 'group' }
+  });
   assert.deepEqual(getStage2bSuite('baseline-v1').taskIds, ['T2', 'T7']);
   assert.deepEqual(getStage2bSuite('boundary-v1').taskIds, ['T12', 'T13', 'T14', 'T15', 'T16', 'T17']);
+  assert.deepEqual(getStage2bSuite('complexity-v1').taskIds, ['T18', 'T19', 'T20', 'T21', 'T22', 'T23']);
   assert.throws(() => getStage2bTaskProfile('T99' as never), /unknown.*task/i);
   assert.throws(() => getStage2bSuite('other-v1' as never), /unknown.*suite/i);
 });

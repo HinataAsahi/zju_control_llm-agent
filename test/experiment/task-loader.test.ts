@@ -39,7 +39,8 @@ test('loads isolated Stage 2B diagnostic tasks without changing Stage 2A', async
 
   assert.deepEqual(stage2a.map(task => task.id), ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8']);
   assert.deepEqual(stage2b.map(task => task.id), [
-    'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17'
+    'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17',
+    'T18', 'T19', 'T20', 'T21', 'T22', 'T23'
   ]);
   assert.equal(stage2b[0]?.kind, 'negative');
   assert.equal(stage2b[0]?.expected.answer, 2);
@@ -49,7 +50,7 @@ test('loads isolated Stage 2B diagnostic tasks without changing Stage 2A', async
   ]);
   assert.deepEqual(stage2b[2]?.expected.answer, ['api', 'search']);
   assert.deepEqual(
-    stage2b.slice(3).map(task => ({ id: task.id, kind: task.kind, answer: task.expected.answer })),
+    stage2b.slice(3, 9).map(task => ({ id: task.id, kind: task.kind, answer: task.expected.answer })),
     [
       { id: 'T12', kind: 'negative', answer: 3 },
       { id: 'T13', kind: 'normal', answer: 3 },
@@ -60,6 +61,7 @@ test('loads isolated Stage 2B diagnostic tasks without changing Stage 2A', async
     ]
   );
   for (let index = 3; index < stage2b.length; index += 2) {
+    if (index >= 9) break;
     const negative = stage2b[index];
     const positive = stage2b[index + 1];
     assert.ok(negative);
@@ -67,6 +69,56 @@ test('loads isolated Stage 2B diagnostic tasks without changing Stage 2A', async
     assert.deepEqual(negative.expected, positive.expected);
     assert.deepEqual(negative.inputFiles, []);
     assert.deepEqual(positive.inputFiles, []);
+  }
+  assert.deepEqual(
+    stage2b.slice(9).map(task => ({ id: task.id, kind: task.kind, answer: task.expected.answer })),
+    [
+      { id: 'T18', kind: 'normal', answer: 4 },
+      { id: 'T19', kind: 'normal', answer: 13 },
+      { id: 'T20', kind: 'normal', answer: ['t01', 't06'] },
+      { id: 'T21', kind: 'normal', answer: ['t01', 't06', 't07', 't12', 't16', 't22'] },
+      { id: 'T22', kind: 'normal', answer: { east: 250, west: 230 } },
+      { id: 'T23', kind: 'normal', answer: { east: 962, west: 897 } }
+    ]
+  );
+  for (const task of stage2b.slice(9)) {
+    assert.deepEqual(task.inputFiles, []);
+    assert.match(task.prompt, /JSON object/);
+  }
+});
+
+test('pairs each complexity operation across nested 6-row and 24-row datasets', async () => {
+  const tasks = await loadTasks(resolve('experiments/stage-2b'));
+  const byId = new Map(tasks.map(task => [task.id, task]));
+  type Transaction = { id: string; region: 'east' | 'west'; status: string; amount: number };
+  type Input = { transactions: Transaction[] };
+  const cases = [
+    ['T18', 'T19', (input: Input) => input.transactions.filter(row => row.status === 'ready').length],
+    ['T20', 'T21', (input: Input) => input.transactions
+      .filter(row => row.region === 'east' && row.status === 'ready' && row.amount >= 80)
+      .map(row => row.id)
+      .sort()],
+    ['T22', 'T23', (input: Input) => input.transactions
+      .filter(row => row.status !== 'void')
+      .reduce<Record<string, number>>((totals, row) => ({
+        ...totals,
+        [row.region]: (totals[row.region] ?? 0) + row.amount
+      }), {})]
+  ] as const;
+
+  for (const [smallId, mediumId, calculate] of cases) {
+    const small = byId.get(smallId);
+    const medium = byId.get(mediumId);
+    assert.ok(small);
+    assert.ok(medium);
+
+    const smallInput = JSON.parse(small.prompt.split('\n\n').at(-1) ?? '') as Input;
+    const mediumInput = JSON.parse(medium.prompt.split('\n\n').at(-1) ?? '') as Input;
+    assert.equal(smallInput.transactions.length, 6);
+    assert.equal(mediumInput.transactions.length, 24);
+    assert.deepEqual(mediumInput.transactions.slice(0, 6), smallInput.transactions);
+    assert.deepEqual(calculate(smallInput), small.expected.answer);
+    assert.deepEqual(calculate(mediumInput), medium.expected.answer);
   }
 });
 

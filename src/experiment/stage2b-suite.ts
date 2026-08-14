@@ -1,22 +1,30 @@
 import type { ExperimentCondition } from './schema.js';
 
-export type Stage2bSuiteId = 'baseline-v1' | 'diagnostic-v1' | 'boundary-v1';
+export type Stage2bSuiteId = 'baseline-v1' | 'diagnostic-v1' | 'boundary-v1' | 'complexity-v1';
 export type Stage2bTaskId =
   | 'T1' | 'T2' | 'T6' | 'T7' | 'T9' | 'T10' | 'T11'
-  | 'T12' | 'T13' | 'T14' | 'T15' | 'T16' | 'T17';
+  | 'T12' | 'T13' | 'T14' | 'T15' | 'T16' | 'T17'
+  | 'T18' | 'T19' | 'T20' | 'T21' | 'T22' | 'T23';
 export const STAGE2B_TASK_IDS = [
   'T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11',
-  'T12', 'T13', 'T14', 'T15', 'T16', 'T17'
+  'T12', 'T13', 'T14', 'T15', 'T16', 'T17',
+  'T18', 'T19', 'T20', 'T21', 'T22', 'T23'
 ] as const;
 export type Stage2bTreatment = ExperimentCondition | 'skill-v1' | 'skill-v2';
-export type Stage2bToolPolicy = 'required' | 'forbidden';
+export type Stage2bToolPolicy = 'required' | 'forbidden' | 'observed';
 export type Stage2bRecoveryMode = 'none' | 'required' | 'natural';
+export type Stage2bComplexitySize = 'small' | 'medium';
+export type Stage2bComplexityOperation = 'count' | 'filter' | 'group';
 
 export interface Stage2bTaskProfile {
   taskId: Stage2bTaskId;
   taskRoot: 'stage-2a' | 'stage-2b';
   toolPolicy: Stage2bToolPolicy;
   recoveryMode: Stage2bRecoveryMode;
+  calibration?: {
+    size: Stage2bComplexitySize;
+    operation: Stage2bComplexityOperation;
+  };
 }
 
 export interface Stage2bSuite {
@@ -44,7 +52,13 @@ const taskProfiles: Readonly<Record<Stage2bTaskId, Readonly<Stage2bTaskProfile>>
   T14: Object.freeze({ taskId: 'T14', taskRoot: 'stage-2b', toolPolicy: 'forbidden', recoveryMode: 'none' }),
   T15: Object.freeze({ taskId: 'T15', taskRoot: 'stage-2b', toolPolicy: 'required', recoveryMode: 'none' }),
   T16: Object.freeze({ taskId: 'T16', taskRoot: 'stage-2b', toolPolicy: 'forbidden', recoveryMode: 'none' }),
-  T17: Object.freeze({ taskId: 'T17', taskRoot: 'stage-2b', toolPolicy: 'required', recoveryMode: 'none' })
+  T17: Object.freeze({ taskId: 'T17', taskRoot: 'stage-2b', toolPolicy: 'required', recoveryMode: 'none' }),
+  T18: Object.freeze({ taskId: 'T18', taskRoot: 'stage-2b', toolPolicy: 'observed', recoveryMode: 'none', calibration: Object.freeze({ size: 'small', operation: 'count' }) }),
+  T19: Object.freeze({ taskId: 'T19', taskRoot: 'stage-2b', toolPolicy: 'observed', recoveryMode: 'none', calibration: Object.freeze({ size: 'medium', operation: 'count' }) }),
+  T20: Object.freeze({ taskId: 'T20', taskRoot: 'stage-2b', toolPolicy: 'observed', recoveryMode: 'none', calibration: Object.freeze({ size: 'small', operation: 'filter' }) }),
+  T21: Object.freeze({ taskId: 'T21', taskRoot: 'stage-2b', toolPolicy: 'observed', recoveryMode: 'none', calibration: Object.freeze({ size: 'medium', operation: 'filter' }) }),
+  T22: Object.freeze({ taskId: 'T22', taskRoot: 'stage-2b', toolPolicy: 'observed', recoveryMode: 'none', calibration: Object.freeze({ size: 'small', operation: 'group' }) }),
+  T23: Object.freeze({ taskId: 'T23', taskRoot: 'stage-2b', toolPolicy: 'observed', recoveryMode: 'none', calibration: Object.freeze({ size: 'medium', operation: 'group' }) })
 });
 
 const suites: Readonly<Record<Stage2bSuiteId, Readonly<Stage2bSuite>>> = Object.freeze({
@@ -84,6 +98,14 @@ const suites: Readonly<Record<Stage2bSuiteId, Readonly<Stage2bSuite>>> = Object.
     ].map(([taskId, condition]) => Object.freeze({
       taskId: taskId as Stage2bTaskId,
       condition: condition as Stage2bTreatment
+    })))
+  }),
+  'complexity-v1': Object.freeze({
+    id: 'complexity-v1',
+    taskIds: Object.freeze(['T18', 'T19', 'T20', 'T21', 'T22', 'T23'] as const),
+    runs: Object.freeze(['T18', 'T21', 'T22', 'T19', 'T20', 'T23'].map(taskId => Object.freeze({
+      taskId: taskId as Stage2bTaskId,
+      condition: 'description' as const
     })))
   })
 });

@@ -20,7 +20,9 @@ export type Stage2bSuiteTaskId<Suite extends Stage2bSuiteId> = Suite extends 'ba
   ? 'T2' | 'T7'
   : Suite extends 'diagnostic-v1'
     ? 'T9' | 'T10' | 'T11'
-    : 'T12' | 'T13' | 'T14' | 'T15' | 'T16' | 'T17';
+    : Suite extends 'boundary-v1'
+      ? 'T12' | 'T13' | 'T14' | 'T15' | 'T16' | 'T17'
+      : 'T18' | 'T19' | 'T20' | 'T21' | 'T22' | 'T23';
 
 export interface Stage2bPlanRun<Suite extends Stage2bSuiteId = Stage2bSuiteId> {
   taskId: Stage2bSuiteTaskId<Suite>;
@@ -58,6 +60,9 @@ export function createStage2bPlan(
   suite: Stage2bSuiteId = 'baseline-v1'
 ): Stage2bPlan {
   validateStage2bPlanRepetitions(repetitions);
+  if (suite === 'complexity-v1' && repetitions !== 1) {
+    throw new Error('Complexity calibration supports exactly one repetition.');
+  }
   const runs = expandStage2bSuite(suite, repetitions);
   const selectedSuite = getStage2bSuite(suite);
   return {

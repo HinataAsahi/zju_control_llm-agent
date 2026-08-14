@@ -40,6 +40,7 @@ import {
   recordStage2bBatchRun
 } from './stage2b-batch.js';
 import { writeStage2bBoundaryReport } from './stage2b-boundary-report.js';
+import { writeStage2bComplexityReport } from './stage2b-complexity-report.js';
 import { writeStage2bDiagnosticReport } from './stage2b-diagnostic-report.js';
 import { evaluateStage2bRecovery } from './stage2b-evaluation.js';
 import {
@@ -101,6 +102,10 @@ export type Stage2bCommand = {
   kind: 'boundary';
   batchId: string;
   repeatBatchId?: string;
+} | {
+  mode: 'report';
+  kind: 'complexity';
+  batchId: string;
 };
 
 export type { Stage2bTaskId } from './stage2b-record.js';
@@ -132,10 +137,11 @@ const supportedConditions: readonly Stage2bTreatment[] = [
 ];
 const stage2bHelp = [
   'Stage 2B supports:',
-  'smoke [--task T1|T2|T6|T7|T9|T10|T11|T12|T13|T14|T15|T16|T17] [--condition explicit|description|skill|skill-v1|skill-v2];',
-  `plan [--suite baseline-v1|diagnostic-v1|boundary-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
-  `prepare [--suite baseline-v1|diagnostic-v1|boundary-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}] [--initial-batch <batch-id>];`,
+  'smoke [--task T1|T2|T6|T7|T9|T10|T11|T12|T13|T14|T15|T16|T17|T18|T19|T20|T21|T22|T23] [--condition explicit|description|skill|skill-v1|skill-v2];',
+  `plan [--suite baseline-v1|diagnostic-v1|boundary-v1|complexity-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}];`,
+  `prepare [--suite baseline-v1|diagnostic-v1|boundary-v1|complexity-v1] [--repetitions 1..${STAGE2B_PLAN_MAX_REPETITIONS}] [--initial-batch <batch-id>];`,
   'run-next --batch <batch-id>;',
+  'report --complexity-batch <batch-id>;',
   'report --boundary-batch <batch-id> [--repeat-batch <batch-id>];',
   'report --batch <batch-id> [--repeat-batch <batch-id>]; or',
   'report --pilot-batch <batch-id> --calibrated-batch <batch-id> [--repeat-batch <batch-id>]'
@@ -434,6 +440,21 @@ export async function main(
   }
   const repositoryRoot = options.repositoryRoot ?? process.cwd();
   if (command.mode === 'report') {
+    if (command.kind === 'complexity') {
+      const result = await writeStage2bComplexityReport({
+        repositoryRoot,
+        batchId: command.batchId
+      });
+      const output = `${JSON.stringify({
+        status: 'reported',
+        kind: 'complexity',
+        batchId: command.batchId,
+        jsonPath: result.jsonPath,
+        markdownPath: result.markdownPath
+      }, null, 2)}\n`;
+      (options.writeOutput ?? (text => { process.stdout.write(text); }))(output);
+      return 0;
+    }
     if (command.kind === 'boundary') {
       const result = await writeStage2bBoundaryReport({
         repositoryRoot,
@@ -616,6 +637,15 @@ export async function main(
 }
 
 function parseReportArgs(argv: string[]): Extract<Stage2bCommand, { mode: 'report' }> {
+  const complexityBatchId = argv[1];
+  if (
+    argv.length === 2
+    && argv[0] === '--complexity-batch'
+    && complexityBatchId
+    && isStage2bBatchId(complexityBatchId)
+  ) {
+    return { mode: 'report', kind: 'complexity', batchId: complexityBatchId };
+  }
   const boundaryBatchId = argv[1];
   if (
     argv[0] === '--boundary-batch'
@@ -713,7 +743,10 @@ function isSupportedCondition(value: string | undefined): value is Stage2bTreatm
 }
 
 function isStage2bSuiteId(value: string | undefined): value is Stage2bSuiteId {
-  return value === 'baseline-v1' || value === 'diagnostic-v1' || value === 'boundary-v1';
+  return value === 'baseline-v1'
+    || value === 'diagnostic-v1'
+    || value === 'boundary-v1'
+    || value === 'complexity-v1';
 }
 
 function parseRepetitionArgs(
@@ -765,6 +798,9 @@ function parseRepetitionArgs(
     ) {
       throw new Error(`Invalid ${mode} arguments. ${stage2bHelp}`);
     }
+  }
+  if (suite === 'complexity-v1' && repetitions !== 1) {
+    throw new Error(`Complexity calibration supports exactly one repetition. ${stage2bHelp}`);
   }
   return mode === 'plan'
     ? { mode, suite, repetitions }

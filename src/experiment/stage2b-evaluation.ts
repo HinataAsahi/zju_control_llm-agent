@@ -72,11 +72,15 @@ export function analyzeStage2bProcess(input: Stage2bProcessInput): Stage2bProces
   const first = calls[0];
   const toolCompliance = profile.toolPolicy === 'forbidden'
     ? toolCallCount === 0
-    : calls.length > 0;
+    : profile.toolPolicy === 'observed'
+      ? true
+      : calls.length > 0;
 
   let strategy: Stage2bProcessAnalysis['strategy'];
   if (profile.toolPolicy === 'forbidden') {
     strategy = toolCallCount === 0 ? 'avoided-tool' : 'unnecessary-tool';
+  } else if (profile.toolPolicy === 'observed' && !first) {
+    strategy = input.taskSuccess === true ? 'avoided-tool' : 'unresolved';
   } else if (!first) {
     strategy = 'unresolved';
   } else if (hasSuccessfulTaskQueryAfterInspection(calls) && input.taskSuccess === true) {

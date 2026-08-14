@@ -473,7 +473,8 @@ test('accepts smoke for the supported representative task set', () => {
     mode: 'smoke', taskId: 'T1', condition: 'explicit'
   });
   for (const taskId of [
-    'T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17'
+    'T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17',
+    'T18', 'T19', 'T20', 'T21', 'T22', 'T23'
   ] as const) {
     assert.deepEqual(parseStage2bArgs(['smoke', '--task', taskId]), {
       mode: 'smoke', taskId, condition: 'explicit'
@@ -517,6 +518,14 @@ test('accepts suite-aware bounded repetition arguments for offline plans', () =>
     parseStage2bArgs(['plan', '--suite', 'boundary-v1']),
     { mode: 'plan', suite: 'boundary-v1', repetitions: 1 }
   );
+  assert.deepEqual(
+    parseStage2bArgs(['plan', '--suite', 'complexity-v1']),
+    { mode: 'plan', suite: 'complexity-v1', repetitions: 1 }
+  );
+  assert.throws(
+    () => parseStage2bArgs(['plan', '--suite', 'complexity-v1', '--repetitions', '2']),
+    /complexity.*one|repetition/i
+  );
   for (const argv of [
     ['plan', '--repetitions'],
     ['plan', '--repetitions', '0'],
@@ -543,6 +552,14 @@ test('accepts suite-aware bounded repetition arguments for batch preparation', (
   assert.deepEqual(
     parseStage2bArgs(['prepare', '--repetitions', '2', '--suite', 'diagnostic-v1']),
     { mode: 'prepare', suite: 'diagnostic-v1', repetitions: 2 }
+  );
+  assert.deepEqual(
+    parseStage2bArgs(['prepare', '--suite', 'complexity-v1']),
+    { mode: 'prepare', suite: 'complexity-v1', repetitions: 1 }
+  );
+  assert.throws(
+    () => parseStage2bArgs(['prepare', '--suite', 'complexity-v1', '--repetitions', '2']),
+    /complexity.*one|repetition/i
   );
   assert.deepEqual(
     parseStage2bArgs([
@@ -585,6 +602,18 @@ test('requires a verified initial gate before preparing boundary confirmation re
     repetitions: 2,
     createdAt: new Date('2026-08-13T11:00:00.000Z')
   }), /initial batch/i);
+});
+
+test('refuses direct preparation of repeated complexity calibration batches', async t => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'stage2b-complexity-repetitions-'));
+  t.after(() => rm(repositoryRoot, { recursive: true, force: true }));
+
+  await assert.rejects(prepareStage2bBatch({
+    repositoryRoot,
+    suite: 'complexity-v1',
+    repetitions: 2,
+    createdAt: new Date('2026-08-14T08:00:00.000Z')
+  }), /complexity.*one|repetition/i);
 });
 
 test('builds skill instructions from the already verified contents', () => {

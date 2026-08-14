@@ -72,7 +72,8 @@ test('accepts every Stage 2B representative task ID', async t => {
   t.after(() => rm(root, { recursive: true, force: true }));
 
   for (const taskId of [
-    'T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17'
+    'T1', 'T2', 'T6', 'T7', 'T9', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T16', 'T17',
+    'T18', 'T19', 'T20', 'T21', 'T22', 'T23'
   ] as const) {
     const value: Stage2bRecord = {
       ...record(`stage2b-${taskId}-explicit-test`),

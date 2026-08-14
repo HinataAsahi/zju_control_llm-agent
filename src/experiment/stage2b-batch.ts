@@ -33,7 +33,7 @@ const conditionSchema = z.enum(['explicit', 'description', 'skill', 'skill-v1', 
 const taskIdSchema = z.enum(STAGE2B_TASK_IDS);
 
 const runIdentityShape = {
-  runKey: z.string().regex(/^T(?:1|2|6|7|9|10|11|12|13|14|15|16|17)-(?:explicit|description|skill|skill-v1|skill-v2)-r[1-9]\d*$/),
+  runKey: z.string().regex(/^T(?:1|2|6|7|9|10|11|12|13|14|15|16|17|18|19|20|21|22|23)-(?:explicit|description|skill|skill-v1|skill-v2)-r[1-9]\d*$/),
   taskId: taskIdSchema,
   condition: conditionSchema,
   repetition: repetitionsSchema
@@ -101,7 +101,7 @@ const stage2bBatchManifestV1Schema = z.strictObject({
 
 const stage2bBatchManifestV2Schema = z.strictObject({
   version: z.literal(2),
-  suite: z.enum(['baseline-v1', 'diagnostic-v1']),
+  suite: z.enum(['baseline-v1', 'diagnostic-v1', 'complexity-v1']),
   ...sharedManifestShape,
   sampling: samplingSchema
 });
@@ -128,6 +128,13 @@ const stage2bBatchManifestSchema = z.discriminatedUnion('version', [
   stage2bBatchManifestV2Schema,
   stage2bBatchManifestV3Schema
 ]).superRefine((manifest, context) => {
+  if (manifest.version === 2 && manifest.suite === 'complexity-v1' && manifest.repetitions !== 1) {
+    context.addIssue({
+      code: 'custom',
+      path: ['repetitions'],
+      message: 'Complexity calibration supports exactly one repetition.'
+    });
+  }
   if (manifest.version === 3) {
     if (manifest.repetitions === 1 && manifest.initialBatchId !== undefined) {
       context.addIssue({
@@ -191,6 +198,9 @@ export async function prepareStage2bBatch(options: {
   createdAt: Date;
   initialBatchId?: string;
 }): Promise<{ manifest: Stage2bBatchManifest; manifestPath: string }> {
+  if (options.suite === 'complexity-v1' && options.repetitions !== 1) {
+    throw new Error('Complexity calibration supports exactly one repetition.');
+  }
   if (options.suite !== 'boundary-v1' && options.initialBatchId !== undefined) {
     throw new Error('Only boundary confirmation batches accept an initial batch.');
   }
