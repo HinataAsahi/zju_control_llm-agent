@@ -157,7 +157,9 @@ collect -> extract -> propose -> review -> approve -> materialize -> skill -> ve
 
 声明式执行器只接受本地配置提供的可执行文件，以及经过验证的固定选项、位置参数和 JSON 标准输入绑定。它保持 `shell: false`，使用最小环境，限制输入、输出和执行时间，并复用已有的文件根目录与符号链接防护。生成产物不能提供自由命令模板、可执行路径或环境变量。
 
-未批准的 IR、Profile、模型阶段元数据、失败响应和审阅报告保存在已忽略的 `.generation-runs/stage-3/jq/`，目录权限为 `0700`、文件权限为 `0600`。只有审阅通过的证据和生成产物才会进入 `experiments/stage-3/artifacts/` 并提交。当前尚未执行真实生成请求，因此仓库中没有伪造的 Stage 3 结果。
+未批准的 IR、Profile、模型阶段元数据、失败响应和审阅报告保存在已忽略的 `.generation-runs/stage-3/jq/`，目录权限为 `0700`、文件权限为 `0600`。只有审阅通过的证据和生成产物才会进入 `experiments/stage-3/artifacts/` 并提交。
+
+真实管线现已运行到 `review`：通过校验的 IR 请求使用 5704 Token，通过校验的 Profile 请求使用 7557 Token；在补全两个阶段的输出契约前，各有一次模型输出被本地校验拒绝，分别使用 5502 和 7333 Token。四次有模型输出的请求合计 26096 Token，其中输入 13003、输出 13093、缓存命中 0。最初一次请求还因本机失效代理而在到达供应商前失败，没有模型 Token 记录。当前 Profile 尚待人工审阅，因此仓库中仍没有 Stage 3 已批准产物，也没有发起 Skill 请求。
 
 ## Stage 2A 观察结果
 
@@ -430,4 +432,4 @@ docs/learning-notes/             前期学习材料
 
 我已完成 Stage 2B 的 pilot、预算校准、固定配置重复观测、`diagnostic-v1`、`boundary-v1` 首轮和 `complexity-v1` 校准。复杂度校准把任务成功与工具选择分开，并找到了“6 行计数直接作答、24 行计数使用工具”的候选边界；继续重复同类评测的边际价值已经低于进入生成主线。
 
-下一步运行 Stage 3 的 `collect -> extract -> propose -> review`，检查真实 `jq 1.8.2` 证据、完整能力抽取、默认拒绝决策和生成 Token 用量。Profile 审阅通过后，再物化 Schema/执行规格并生成 Skill；随后把已批准产物接入 MCP Server 与现有 Agent Runner，比较它和人工 `jq_query` 基线的接口、执行结果及任务行为。链路稳定后再引入第二个 CLI，检查抽取规则和生成结果是否能够泛化。
+Stage 3 已经完成 `collect -> extract -> propose -> review`。下一步人工审阅真实 `jq 1.8.2` 证据、IR 抽取和默认拒绝 Profile；审阅通过后，再物化 Schema/执行规格并生成 Skill。随后把已批准产物接入 MCP Server 与现有 Agent Runner，比较它和人工 `jq_query` 基线的接口、执行结果及任务行为。链路稳定后再引入第二个 CLI，检查抽取规则和生成结果是否能够泛化。
