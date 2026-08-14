@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test --test-concurrency=1 dist/test/mcp/*.test.js dist/test/agent/*.test.js dist/test/experiment/*.test.js",
+    "test": "npm run build && node --test --test-concurrency=1 dist/test/mcp/*.test.js dist/test/agent/*.test.js dist/test/experiment/*.test.js dist/test/generation/*.test.js",
     "test:agent": "npm run build && node --test dist/test/agent/*.test.js",
     "test:mcp": "npm run build && node --test dist/test/mcp/*.test.js",
     "experiment": "npm run build && node dist/src/experiment/stage2a.js",
     "experiment:report": "npm run build && node dist/src/experiment/stage2a.js report",
     "experiment:stage2b": "npm run build && node dist/src/experiment/stage2b.js",
+    "generation": "npm run build && node dist/src/generation/main.js",
     "start": "node dist/src/mcp/server.js"
   },
   "dependencies": {
